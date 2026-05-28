@@ -1,0 +1,30 @@
+# Web Framework
+uvicorn[standard]==0.32.0
+python-multipart==0.0.17
+fastapi==0.135.3
+
+# LangChain & LangGraph
+langchain==1.2.17
+langchain-openai==1.1.12
+langchain-core==1.3.3
+langchain-community==0.4.1
+langgraph==1.1.10
+langgraph-checkpoint-sqlite==3.1.0
+
+# Vector Database
+chromadb==1.5.9
+
+# LLM Client
+openai==2.31.0
+
+# Data & Config
+pydantic==2.12.5
+pydantic-settings==2.13.1
+python-dotenv==1.2.2
+
+# Async & HTTP
+httpx==0.28.1
+aiofiles==24.1.0
+
+# Utilities
+python-markdown==0.1.0
