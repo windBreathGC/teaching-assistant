@@ -98,7 +98,19 @@ const store = useAppStore()
 const { subjects } = storeToRefs(store)
 const loading = ref(false)
 const error = ref('')
-const selectedGrade = ref('')
+
+const selectedGrade = computed({
+  get: () => (route.query.grade as string) || '',
+  set: (val) => {
+    const current = (route.query.grade as string) || ''
+    if (val === current) return
+    if (val) {
+      router.replace({ query: { grade: val } })
+    } else {
+      router.replace({ query: {} })
+    }
+  },
+})
 
 const gradeGroups = computed(() => {
   const map: Record<string, Subject[]> = {}
@@ -135,11 +147,8 @@ async function loadSubjects() {
 }
 
 onMounted(async () => {
+  store.selectSubject(null)
   await loadSubjects()
-  const gradeFromQuery = route.query.grade as string
-  if (gradeFromQuery && gradeGroups.value[gradeFromQuery]) {
-    selectedGrade.value = gradeFromQuery
-  }
 })
 
 function enterGrade(grade: string) {

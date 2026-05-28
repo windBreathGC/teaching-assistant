@@ -12,6 +12,23 @@ export const useAppStore = defineStore('app', () => {
   const loading = ref(false)
   const sidebarVisible = ref(false)
   const sidebarCollapsed = ref(false)
+  const isMobile = ref(false)
+
+  function updateIsMobile() {
+    isMobile.value = window.matchMedia('(max-width: 768px)').matches
+  }
+
+  updateIsMobile()
+
+  if (typeof window !== 'undefined') {
+    const mql = window.matchMedia('(max-width: 768px)')
+    mql.addEventListener('change', (e) => {
+      isMobile.value = e.matches
+      if (!e.matches) {
+        sidebarVisible.value = false
+      }
+    })
+  }
 
   function toggleSidebar() {
     sidebarVisible.value = !sidebarVisible.value
@@ -73,6 +90,7 @@ export const useAppStore = defineStore('app', () => {
     loading,
     sidebarVisible,
     sidebarCollapsed,
+    isMobile,
     subjectMap,
     setSubjects,
     setChapters,

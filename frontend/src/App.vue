@@ -34,12 +34,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { School, HomeFilled, ChatLineRound } from '@element-plus/icons-vue'
 import { useAppStore } from './stores/app'
 
+const route = useRoute()
 const store = useAppStore()
 const currentSubject = computed(() => store.currentSubject)
+
+watch(() => route.path, (path) => {
+  if (path === '/') {
+    store.selectSubject(null)
+  }
+})
 </script>
 
 <style scoped>

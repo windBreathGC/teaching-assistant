@@ -128,7 +128,7 @@ const currentChapter = computed(() => store.currentChapter)
 const currentLesson = computed(() => store.currentLesson)
 
 function onMenuClick() {
-  if (window.innerWidth <= 768) {
+  if (store.isMobile) {
     store.toggleSidebar()
   } else {
     store.toggleSidebarCollapse()
