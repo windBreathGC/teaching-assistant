@@ -47,3 +47,6 @@ Thumbs.db
 
 # ChromaDB vector store (auto-generated from textbook/ via ingest_textbooks.py)
 chroma_db/
+
+# Frontend build output
+frontend/dist/

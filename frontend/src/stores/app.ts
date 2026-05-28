@@ -15,6 +15,9 @@ export const useAppStore = defineStore('app', () => {
 
   function toggleSidebar() {
     sidebarVisible.value = !sidebarVisible.value
+    if (sidebarVisible.value) {
+      sidebarCollapsed.value = false
+    }
   }
 
   function closeSidebar() {

@@ -1,7 +1,7 @@
 <template>
   <div class="chat-window" :class="{ 'sidebar-collapsed': store.sidebarCollapsed }">
     <div class="chat-header">
-      <button class="menu-btn" @click="store.toggleSidebarCollapse()">
+      <button class="menu-btn" @click="onMenuClick()">
         <el-icon size="18"><Menu /></el-icon>
       </button>
       <div v-if="currentSubject" class="header-context">
@@ -126,6 +126,14 @@ const store = useAppStore()
 const currentSubject = computed(() => store.currentSubject)
 const currentChapter = computed(() => store.currentChapter)
 const currentLesson = computed(() => store.currentLesson)
+
+function onMenuClick() {
+  if (window.innerWidth <= 768) {
+    store.toggleSidebar()
+  } else {
+    store.toggleSidebarCollapse()
+  }
+}
 
 const subjectColor = computed(() => {
   const map: Record<string, string> = {
