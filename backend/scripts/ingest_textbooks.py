@@ -20,6 +20,16 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# 显式加载项目根目录的 .env，确保脚本独立运行时环境变量正确
+from dotenv import load_dotenv
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(os.path.dirname(_script_dir))
+_env_path = os.path.join(_project_root, ".env")
+load_dotenv(_env_path, override=True)
+
+# 强制 ChromaDB 使用 backend/chroma_db 绝对路径，避免因工作目录不同导致数据分离
+os.environ["CHROMA_PERSIST_DIR"] = os.path.join(_script_dir, "..", "chroma_db")
+
 from app.core.config import get_settings
 from app.services.rag import get_collection
 from app.utils.text_splitter import load_and_split
@@ -103,6 +113,14 @@ def _make_chunk_ids(stem: str, count: int) -> list[str]:
 
 
 def main():
+    # 确保脚本无论从哪个目录运行，都使用后端统一的 ChromaDB 路径
+    backend_dir = os.path.join(os.path.dirname(__file__), "..")
+    os.environ.setdefault("CHROMA_PERSIST_DIR", os.path.join(backend_dir, "chroma_db"))
+
+    # 重新加载 settings 以应用上述环境变量覆盖
+    from app.core.config import Settings
+    settings = Settings()
+
     if not settings.OPENAI_API_KEY:
         logger.error("请设置 OPENAI_API_KEY 环境变量")
         sys.exit(1)
@@ -110,6 +128,7 @@ def main():
     _ensure_dir(DATA_DIR)
     logger.info("教材目录: %s", TEXTBOOK_DIR)
     logger.info("索引文件: %s", INDEX_PATH)
+    logger.info("向量库路径: %s", settings.CHROMA_PERSIST_DIR)
 
     collection = get_collection()
     embeddings = OpenAIEmbeddings(
