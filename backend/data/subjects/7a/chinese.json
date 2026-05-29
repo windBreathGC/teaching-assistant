@@ -1,0 +1,72 @@
+{
+  "subject_id": "chinese_7a",
+  "subject_name": "语文",
+  "grade": "七年级上册",
+  "publisher": "部编版",
+  "version": "2024",
+  "description": "含课文、古诗词、名著导读",
+  "chapters": [
+    {
+      "id": "7a_c1",
+      "name": "第一单元：四季美景",
+      "lessons": [
+        {"id": "7a_c1_l1", "name": "春", "content_type": "现代文"},
+        {"id": "7a_c1_l2", "name": "济南的冬天", "content_type": "现代文"},
+        {"id": "7a_c1_l3", "name": "雨的四季", "content_type": "现代文"},
+        {"id": "7a_c1_l4", "name": "古代诗歌四首", "content_type": "古诗词"}
+      ]
+    },
+    {
+      "id": "7a_c2",
+      "name": "第二单元：至爱亲情",
+      "lessons": [
+        {"id": "7a_c2_l1", "name": "秋天的怀念", "content_type": "现代文"},
+        {"id": "7a_c2_l2", "name": "散步", "content_type": "现代文"},
+        {"id": "7a_c2_l3", "name": "散文诗二首", "content_type": "现代文"},
+        {"id": "7a_c2_l4", "name": "《世说新语》二则", "content_type": "文言文"}
+      ]
+    },
+    {
+      "id": "7a_c3",
+      "name": "第三单元：学习生活",
+      "lessons": [
+        {"id": "7a_c3_l1", "name": "从百草园到三味书屋", "content_type": "现代文"},
+        {"id": "7a_c3_l2", "name": "再塑生命的人", "content_type": "现代文"},
+        {"id": "7a_c3_l3", "name": "《论语》十二章", "content_type": "文言文"},
+        {"id": "7a_c3_l4", "name": "写作：如何突出中心", "content_type": "写作"},
+        {"id": "7a_c3_l5", "name": "名著导读：《朝花夕拾》", "content_type": "名著"},
+        {"id": "7a_c3_poem", "name": "课外古诗词4首（一）", "content_type": "古诗词"}
+      ]
+    },
+    {
+      "id": "7a_c4",
+      "name": "第四单元：人生之舟",
+      "lessons": [
+        {"id": "7a_c4_l1", "name": "纪念白求恩", "content_type": "现代文"},
+        {"id": "7a_c4_l2", "name": "植树的牧羊人", "content_type": "现代文"},
+        {"id": "7a_c4_l3", "name": "走一步，再走一步", "content_type": "现代文"},
+        {"id": "7a_c4_l4", "name": "诫子书", "content_type": "文言文"}
+      ]
+    },
+    {
+      "id": "7a_c5",
+      "name": "第五单元：动物与人",
+      "lessons": [
+        {"id": "7a_c5_l1", "name": "猫", "content_type": "现代文"},
+        {"id": "7a_c5_l2", "name": "动物笑谈", "content_type": "现代文"},
+        {"id": "7a_c5_l3", "name": "狼", "content_type": "文言文"}
+      ]
+    },
+    {
+      "id": "7a_c6",
+      "name": "第六单元：想象之翼",
+      "lessons": [
+        {"id": "7a_c6_l1", "name": "皇帝的新装", "content_type": "现代文"},
+        {"id": "7a_c6_l2", "name": "天上的街市", "content_type": "诗歌"},
+        {"id": "7a_c6_l3", "name": "女娲造人", "content_type": "神话"},
+        {"id": "7a_c6_l4", "name": "寓言四则", "content_type": "寓言"},
+        {"id": "7a_c6_poem", "name": "课外古诗词4首（二）", "content_type": "古诗词"}
+      ]
+    }
+  ]
+}

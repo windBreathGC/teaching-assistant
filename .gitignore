@@ -27,11 +27,12 @@ wheels/
 *.egg
 
 # Data & Logs
-data/
 logs/
 *.db
 *.sqlite
 *.sqlite3
+# Auto-generated index (produced by ingest_textbooks.py)
+backend/data/ingest_index.json
 
 # IDE
 .vscode/

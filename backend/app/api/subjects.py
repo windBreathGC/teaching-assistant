@@ -6,84 +6,80 @@ from app.models.schemas import SubjectInfo, ChapterInfo, LessonInfo
 
 router = APIRouter(prefix="/subjects", tags=["subjects"])
 
-_GRADE_SUFFIX = {
-    "七年级上册": "7a",
-    "七年级下册": "7b",
-    "八年级上册": "8a",
-    "八年级下册": "8b",
-    "九年级上册": "9a",
-    "九年级下册": "9b",
-}
+_DATA_DIR = Path(__file__).parent.parent.parent / "data" / "subjects"
 
-_SUBJECTS_BASE = [
-    ("chinese", "语文", "部编版", "2024", "含课文、古诗词、名著导读"),
-    ("math", "数学", "浙教版", "2024", "含章节内容、例题解析"),
-    ("english", "英语", "人教PEP版", "2024", "含单元、词汇、语法"),
-    ("science", "科学", "浙教版", "2024", "含章节、实验探究"),
-    ("social", "社会", "人教版", "2024", "含历史与社会知识"),
-]
 
-_GRADES = [
-    "七年级上册",
-    "七年级下册",
-    "八年级上册",
-    "八年级下册",
-    "九年级上册",
-    "九年级下册",
-]
+def _load_manifest() -> dict:
+    """加载 manifest.json，返回学科基础配置。"""
+    manifest_path = _DATA_DIR / "manifest.json"
+    if manifest_path.exists():
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    return {"grade_suffix_map": {}, "grades": [], "subjects": []}
+
+
+_MANIFEST = _load_manifest()
+_GRADE_SUFFIX: dict[str, str] = _MANIFEST.get("grade_suffix_map", {})
+_GRADES: list[str] = _MANIFEST.get("grades", [])
+_SUBJECTS_BASE: list[dict] = _MANIFEST.get("subjects", [])
 
 SUBJECTS = [
     SubjectInfo(
-        id=f"{sid}_{_GRADE_SUFFIX[grade]}",
-        name=name,
-        publisher=publisher,
-        version=version,
+        id=f"{subj['id']}_{_GRADE_SUFFIX[grade]}",
+        name=subj["name"],
+        publisher=subj["publisher"],
+        version=subj["version"],
         grade=grade,
-        description=f"{publisher}{version}{grade}{name}，{desc}",
+        description=f"{subj['publisher']}{subj['version']}{grade}{subj['name']}，{subj.get('description', '')}",
     )
     for grade in _GRADES
-    for sid, name, publisher, version, desc in _SUBJECTS_BASE
+    for subj in _SUBJECTS_BASE
 ]
 
 # 从 JSON 配置文件加载章节和课程数据
-_DATA_DIR = Path(Path(__file__).parent.parent.parent, "data", "subjects")
+# generated/ 目录存放自动解析的产物，优先于手工维护的 subjects/
+_SUBJECTS_DIR = Path(Path(__file__).parent.parent.parent, "data", "subjects")
+_GENERATED_DIR = Path(Path(__file__).parent.parent.parent, "data", "generated")
 
 
 def _load_subject_chapters() -> dict[str, list[ChapterInfo]]:
-    """加载所有有数据的学科的章节列表。"""
+    """加载所有有数据的学科的章节列表。
+    优先使用 generated/ 目录的自动解析结果，fallback 到 subjects/ 手工数据。"""
     chapters: dict[str, list[ChapterInfo]] = {}
-    if not _DATA_DIR.exists():
-        return chapters
-    for json_file in _DATA_DIR.glob("*/*.json"):
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        subject_id = data.get("subject_id", "")
-        if not subject_id:
+    for data_dir in (_SUBJECTS_DIR, _GENERATED_DIR):
+        if not data_dir.exists():
             continue
-        chapters[subject_id] = [
-            ChapterInfo(id=ch["id"], name=ch["name"], subject_id=subject_id)
-            for ch in data.get("chapters", [])
-        ]
+        for json_file in data_dir.glob("*/*.json"):
+            data = json.loads(json_file.read_text(encoding="utf-8"))
+            subject_id = data.get("subject_id", "")
+            if not subject_id:
+                continue
+            chapters[subject_id] = [
+                ChapterInfo(id=ch["id"], name=ch["name"], subject_id=subject_id)
+                for ch in data.get("chapters", [])
+            ]
     return chapters
 
 
 def _load_subject_lessons() -> dict[str, list[LessonInfo]]:
-    """加载所有章节的课程列表。"""
+    """加载所有章节的课程列表。
+    优先使用 generated/ 目录的自动解析结果，fallback 到 subjects/ 手工数据。"""
     lessons: dict[str, list[LessonInfo]] = {}
-    if not _DATA_DIR.exists():
-        return lessons
-    for json_file in _DATA_DIR.glob("*/*.json"):
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        for ch in data.get("chapters", []):
-            chapter_id = ch["id"]
-            lessons[chapter_id] = [
-                LessonInfo(
-                    id=ls["id"],
-                    name=ls["name"],
-                    chapter_id=chapter_id,
-                    content_type=ls.get("content_type", ""),
-                )
-                for ls in ch.get("lessons", [])
-            ]
+    for data_dir in (_SUBJECTS_DIR, _GENERATED_DIR):
+        if not data_dir.exists():
+            continue
+        for json_file in data_dir.glob("*/*.json"):
+            data = json.loads(json_file.read_text(encoding="utf-8"))
+            for ch in data.get("chapters", []):
+                chapter_id = ch["id"]
+                lessons[chapter_id] = [
+                    LessonInfo(
+                        id=ls["id"],
+                        name=ls["name"],
+                        chapter_id=chapter_id,
+                        content_type=ls.get("content_type", ""),
+                    )
+                    for ls in ch.get("lessons", [])
+                ]
     return lessons
 
 
@@ -93,10 +89,10 @@ _LESSONS_DATA = _load_subject_lessons()
 # 尚未加载到教材数据的学科，章节列表为空
 _LOADED_SUBJECT_IDS = set(_CHAPTERS_DATA.keys())
 _EMPTY_SUBJECT_IDS = [
-    f"{sid}_{suffix}"
-    for suffix in ["7b", "8a", "8b", "9a", "9b"]
-    for sid, _, _, _, _ in _SUBJECTS_BASE
-    if f"{sid}_{suffix}" not in _LOADED_SUBJECT_IDS
+    f"{subj['id']}_{_GRADE_SUFFIX[grade]}"
+    for grade in _GRADES
+    for subj in _SUBJECTS_BASE
+    if f"{subj['id']}_{_GRADE_SUFFIX[grade]}" not in _LOADED_SUBJECT_IDS
 ]
 CHAPTERS = {**_CHAPTERS_DATA, **{sid: [] for sid in _EMPTY_SUBJECT_IDS}}
 LESSONS = _LESSONS_DATA

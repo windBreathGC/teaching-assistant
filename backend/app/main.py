@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 from app.core.config import get_settings
-from app.api import health, subjects, chat
+from app.api import health, subjects, chat, admin
 
 settings = get_settings()
 
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(subjects.router)
 app.include_router(chat.router)
+app.include_router(admin.router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "frontend", "dist")
 index_path = os.path.join(static_dir, "index.html")

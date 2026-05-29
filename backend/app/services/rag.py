@@ -54,22 +54,26 @@ _SUBJECT_ID_MAP = {
 }
 
 # 从 JSON 配置文件动态构建课文ID -> 课文名称映射
-_DATA_DIR = Path(Path(__file__).parent.parent.parent, "data", "subjects")
+# generated/ 优先，fallback 到 subjects/
+_SUBJECTS_DIR = Path(Path(__file__).parent.parent.parent, "data", "subjects")
+_GENERATED_DIR = Path(Path(__file__).parent.parent.parent, "data", "generated")
 
 
 def _build_lesson_name_map() -> dict[str, str]:
-    """扫描所有学科JSON配置文件，构建课文ID到名称的映射。"""
+    """扫描所有学科JSON配置文件，构建课文ID到名称的映射。
+    优先使用 generated/ 目录的自动解析结果，fallback 到 subjects/ 手工数据。"""
     result: dict[str, str] = {}
-    if not _DATA_DIR.exists():
-        return result
-    for json_file in _DATA_DIR.glob("*/*.json"):
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        for chapter in data.get("chapters", []):
-            for lesson in chapter.get("lessons", []):
-                lesson_id = lesson.get("id")
-                lesson_name = lesson.get("name")
-                if lesson_id and lesson_name:
-                    result[lesson_id] = lesson_name
+    for data_dir in (_SUBJECTS_DIR, _GENERATED_DIR):
+        if not data_dir.exists():
+            continue
+        for json_file in data_dir.glob("*/*.json"):
+            data = json.loads(json_file.read_text(encoding="utf-8"))
+            for chapter in data.get("chapters", []):
+                for lesson in chapter.get("lessons", []):
+                    lesson_id = lesson.get("id")
+                    lesson_name = lesson.get("name")
+                    if lesson_id and lesson_name:
+                        result[lesson_id] = lesson_name
     return result
 
 

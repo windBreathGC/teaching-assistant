@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "grade_suffix_map": {
+    "七年级上册": "7a",
+    "七年级下册": "7b",
+    "八年级上册": "8a",
+    "八年级下册": "8b",
+    "九年级上册": "9a",
+    "九年级下册": "9b"
+  },
+  "grades": [
+    "七年级上册",
+    "七年级下册",
+    "八年级上册",
+    "八年级下册",
+    "九年级上册",
+    "九年级下册"
+  ],
+  "subjects": [
+    {
+      "id": "chinese",
+      "name": "语文",
+      "publisher": "部编版",
+      "version": "2024",
+      "description": "含课文、古诗词、名著导读"
+    },
+    {
+      "id": "math",
+      "name": "数学",
+      "publisher": "浙教版",
+      "version": "2024",
+      "description": "含章节内容、例题解析"
+    },
+    {
+      "id": "english",
+      "name": "英语",
+      "publisher": "人教PEP版",
+      "version": "2024",
+      "description": "含单元、词汇、语法"
+    },
+    {
+      "id": "science",
+      "name": "科学",
+      "publisher": "浙教版",
+      "version": "2024",
+      "description": "含章节、实验探究"
+    },
+    {
+      "id": "social",
+      "name": "社会",
+      "publisher": "人教版",
+      "version": "2024",
+      "description": "含历史与社会知识"
+    }
+  ]
+}

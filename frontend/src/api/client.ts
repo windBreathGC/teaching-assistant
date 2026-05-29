@@ -126,6 +126,34 @@ export const chatApi = {
   },
 }
 
+export interface TextbookItem {
+  filename: string
+  subject: string
+  grade: string
+  semester: string
+  parsed: boolean
+  ingested: boolean
+  outdated: boolean
+  chunks: number | null
+}
+
+export interface TaskInfo {
+  task_id: string
+  type: string
+  filename: string
+  status: string
+  progress: number
+  message: string
+  result: Record<string, unknown> | null
+}
+
+export const adminApi = {
+  listTextbooks: () => api.get<TextbookItem[]>('/admin/textbooks'),
+  parse: (filename: string) => api.post('/admin/textbooks/parse', { filename }),
+  ingest: (filename: string) => api.post<{ task_id: string; status: string; message: string }>('/admin/textbooks/ingest', { filename }),
+  getTask: (taskId: string) => api.get<TaskInfo>(`/admin/tasks/${taskId}`),
+}
+
 export const quizApi = {
   generate: (data: QuizReq) => api.post<QuizResp>('/chat/quiz', data),
 

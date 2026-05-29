@@ -1,0 +1,120 @@
+{
+  "subject_id": "social_7b",
+  "subject_name": "社会",
+  "grade": "七年级下册",
+  "publisher": "人教版",
+  "version": "2024",
+  "description": "含历史与社会知识",
+  "chapters": [
+    {
+      "id": "7b_so1",
+      "name": "第五章 我们生活的大洲——亚洲",
+      "lessons": [
+        {
+          "id": "7b_so1_l1",
+          "name": "5.1 位置和范围",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so1_l2",
+          "name": "5.2 自然环境",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so1_l3",
+          "name": "5.3 人文环境",
+          "content_type": "课文"
+        }
+      ]
+    },
+    {
+      "id": "7b_so2",
+      "name": "第六章 我们邻近的国家和地区",
+      "lessons": [
+        {
+          "id": "7b_so2_l1",
+          "name": "6.1 日本",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so2_l2",
+          "name": "6.2 东南亚",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so2_l3",
+          "name": "6.3 印度",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so2_l4",
+          "name": "6.4 俄罗斯",
+          "content_type": "课文"
+        }
+      ]
+    },
+    {
+      "id": "7b_so3",
+      "name": "第七章 东半球其他的地区和国家",
+      "lessons": [
+        {
+          "id": "7b_so3_l1",
+          "name": "7.1 中东",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so3_l2",
+          "name": "7.2 欧洲西部",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so3_l3",
+          "name": "7.3 撒哈拉以南非洲",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so3_l4",
+          "name": "7.4 澳大利亚",
+          "content_type": "课文"
+        }
+      ]
+    },
+    {
+      "id": "7b_so4",
+      "name": "第八章 西半球的国家",
+      "lessons": [
+        {
+          "id": "7b_so4_l1",
+          "name": "8.1 美国",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so4_l2",
+          "name": "8.2 巴西",
+          "content_type": "课文"
+        }
+      ]
+    },
+    {
+      "id": "7b_so5",
+      "name": "第九章 极地地区",
+      "lessons": [
+        {
+          "id": "7b_so5_l1",
+          "name": "9.1 极地地区的自然环境",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so5_l2",
+          "name": "9.2 科学考察的宝地",
+          "content_type": "课文"
+        },
+        {
+          "id": "7b_so5_l3",
+          "name": "9.3 极地地区的环境保护",
+          "content_type": "课文"
+        }
+      ]
+    }
+  ]
+}

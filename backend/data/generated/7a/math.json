@@ -1,0 +1,284 @@
+{
+  "subject_id": "math_7a",
+  "subject_name": "数学",
+  "grade": "七年级上册",
+  "publisher": "浙教版",
+  "version": "2024",
+  "description": "含章节内容、例题解析",
+  "chapters": [
+    {
+      "id": "7a_m1",
+      "name": "第一章 有理数",
+      "lessons": [
+        {
+          "id": "7a_m1_l1",
+          "name": "1.1 从自然数到有理数",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m1_l2",
+          "name": "1.2 数轴",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m1_l3",
+          "name": "1.3 绝对值",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m1_l4",
+          "name": "1.4 有理数的大小比较",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m2",
+      "name": "第一章 小结与反思",
+      "lessons": []
+    },
+    {
+      "id": "7a_m3",
+      "name": "第二章 有理数的运算",
+      "lessons": [
+        {
+          "id": "7a_m3_l1",
+          "name": "2.1 有理数的加法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m3_l2",
+          "name": "2.2 有理数的减法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m3_l3",
+          "name": "2.3 有理数的乘法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m3_l4",
+          "name": "2.4 有理数的除法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m3_l5",
+          "name": "2.5 有理数的乘方",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m3_l6",
+          "name": "2.6 有理数的混合运算",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m3_l7",
+          "name": "2.7 近似数",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m4",
+      "name": "第二章 小结与反思",
+      "lessons": []
+    },
+    {
+      "id": "7a_m5",
+      "name": "第三章 实数",
+      "lessons": [
+        {
+          "id": "7a_m5_l1",
+          "name": "3.1 平方根",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m5_l2",
+          "name": "3.2 算术平方根",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m5_l3",
+          "name": "3.3 立方根",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m5_l4",
+          "name": "3.4 实数",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m6",
+      "name": "第三章 小结与反思",
+      "lessons": []
+    },
+    {
+      "id": "7a_m7",
+      "name": "第四章 代数式",
+      "lessons": [
+        {
+          "id": "7a_m7_l1",
+          "name": "4.1 用字母表示数",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m7_l2",
+          "name": "4.2 代数式",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m7_l3",
+          "name": "4.3 整式",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m7_l4",
+          "name": "4.4 合并同类项",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m7_l5",
+          "name": "4.5 整式的加减",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m8",
+      "name": "第四章 小结与反思",
+      "lessons": []
+    },
+    {
+      "id": "7a_m9",
+      "name": "第五章 一元一次方程",
+      "lessons": [
+        {
+          "id": "7a_m9_l1",
+          "name": "5.1 一元一次方程",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m9_l2",
+          "name": "5.2 等式的基本性质",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m9_l3",
+          "name": "5.3 一元一次方程的解法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m9_l4",
+          "name": "5.4 一元一次方程的应用",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m10",
+      "name": "第五章 小结与反思",
+      "lessons": []
+    },
+    {
+      "id": "7a_m11",
+      "name": "第六章 图形的初步知识",
+      "lessons": [
+        {
+          "id": "7a_m11_l1",
+          "name": "6.1 几何图形",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m11_l2",
+          "name": "6.2 直线、射线、线段",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m11_l3",
+          "name": "6.3 角",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m11_l4",
+          "name": "6.4 余角和补角",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m11_l5",
+          "name": "6.5 直线的相交",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m12",
+      "name": "第六章 小结与反思",
+      "lessons": []
+    },
+    {
+      "id": "7a_m13",
+      "name": "综合与实践",
+      "lessons": [
+        {
+          "id": "7a_m13_l1",
+          "name": "综合与实践一：身份证号码与学籍号",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m13_l2",
+          "name": "综合与实践二：图形的密铺",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m14",
+      "name": "阅读材料",
+      "lessons": [
+        {
+          "id": "7a_m14_l1",
+          "name": "阅读材料一：无理数的发现",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m14_l2",
+          "name": "阅读材料二：方程史话",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_m14_l3",
+          "name": "阅读材料三：几何学的起源",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_m15",
+      "name": "数学活动",
+      "lessons": [
+        {
+          "id": "7a_m15_l1",
+          "name": "数学活动一：有理数运算的24点游戏",
+          "content_type": "专题"
+        },
+        {
+          "id": "7a_m15_l2",
+          "name": "数学活动二：设计美丽的图案",
+          "content_type": "专题"
+        },
+        {
+          "id": "7a_m15_l3",
+          "name": "数学活动三：测量校园",
+          "content_type": "专题"
+        },
+        {
+          "id": "7a_m15_l4",
+          "name": "常用数学符号",
+          "content_type": "现代文"
+        }
+      ]
+    }
+  ]
+}

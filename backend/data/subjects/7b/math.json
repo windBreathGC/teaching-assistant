@@ -1,0 +1,257 @@
+{
+  "subject_id": "math_7b",
+  "subject_name": "数学",
+  "grade": "七年级下册",
+  "publisher": "浙教版",
+  "version": "2024",
+  "description": "含章节内容、例题解析",
+  "chapters": [
+    {
+      "id": "7b_m1",
+      "name": "第一章 平行线",
+      "lessons": [
+        {
+          "id": "7b_m1_l1",
+          "name": "1.1 相交线",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m1_l2",
+          "name": "1.2 同位角、内错角、同旁内角",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m1_l3",
+          "name": "1.3 平行线的判定",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m1_l4",
+          "name": "1.4 平行线的性质",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m1_l5",
+          "name": "1.5 图形的平移",
+          "content_type": "新知"
+        }
+      ]
+    },
+    {
+      "id": "7b_m2",
+      "name": "第二章 二元一次方程组",
+      "lessons": [
+        {
+          "id": "7b_m2_l1",
+          "name": "2.1 二元一次方程",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m2_l2",
+          "name": "2.2 二元一次方程组",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m2_l3",
+          "name": "2.3 解二元一次方程组（代入消元法）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m2_l4",
+          "name": "2.4 解二元一次方程组（加减消元法）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m2_l5",
+          "name": "2.5 二元一次方程组的应用",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m2_l6",
+          "name": "2.6 三元一次方程组及其解法（选学）",
+          "content_type": "新知"
+        }
+      ]
+    },
+    {
+      "id": "7b_m3",
+      "name": "第三章 整式的乘除",
+      "lessons": [
+        {
+          "id": "7b_m3_l1",
+          "name": "3.1 同底数幂的乘法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l2",
+          "name": "3.2 幂的乘方与积的乘方",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l3",
+          "name": "3.3 单项式的乘法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l4",
+          "name": "3.4 多项式的乘法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l5",
+          "name": "3.5 乘法公式（平方差公式）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l6",
+          "name": "3.6 乘法公式（完全平方公式）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l7",
+          "name": "3.7 同底数幂的除法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l8",
+          "name": "3.8 单项式的除法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m3_l9",
+          "name": "3.9 多项式除以单项式",
+          "content_type": "新知"
+        }
+      ]
+    },
+    {
+      "id": "7b_m4",
+      "name": "第四章 因式分解",
+      "lessons": [
+        {
+          "id": "7b_m4_l1",
+          "name": "4.1 因式分解的概念",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m4_l2",
+          "name": "4.2 提取公因式法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m4_l3",
+          "name": "4.3 用乘法公式分解因式（平方差公式）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m4_l4",
+          "name": "4.4 用乘法公式分解因式（完全平方公式）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m4_l5",
+          "name": "4.5 十字相乘法（选学）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m4_l6",
+          "name": "4.6 分组分解法（选学）",
+          "content_type": "新知"
+        }
+      ]
+    },
+    {
+      "id": "7b_m5",
+      "name": "第五章 分式",
+      "lessons": [
+        {
+          "id": "7b_m5_l1",
+          "name": "5.1 分式的概念",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m5_l2",
+          "name": "5.2 分式的基本性质",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m5_l3",
+          "name": "5.3 分式的约分",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m5_l4",
+          "name": "5.4 分式的通分",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m5_l5",
+          "name": "5.5 分式的乘除法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m5_l6",
+          "name": "5.6 分式的加减法",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m5_l7",
+          "name": "5.7 分式方程",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m5_l8",
+          "name": "5.8 分式方程的应用",
+          "content_type": "新知"
+        }
+      ]
+    },
+    {
+      "id": "7b_m6",
+      "name": "第六章 数据与统计图表",
+      "lessons": [
+        {
+          "id": "7b_m6_l1",
+          "name": "6.1 数据的收集与整理",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m6_l2",
+          "name": "6.2 频数与频率",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m6_l3",
+          "name": "6.3 频数分布表",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m6_l4",
+          "name": "6.4 统计图（条形统计图、折线统计图、扇形统计图）",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m6_l5",
+          "name": "6.5 频数分布直方图",
+          "content_type": "新知"
+        }
+      ]
+    },
+    {
+      "id": "7b_m7",
+      "name": "综合与实践",
+      "lessons": [
+        {
+          "id": "7b_m7_l1",
+          "name": "数学活动一：探究平行线的性质",
+          "content_type": "新知"
+        },
+        {
+          "id": "7b_m7_l2",
+          "name": "数学活动二：数据的收集与分析",
+          "content_type": "新知"
+        }
+      ]
+    }
+  ]
+}

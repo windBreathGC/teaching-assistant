@@ -25,6 +25,14 @@
           <el-icon size="16"><ChatLineRound /></el-icon>
           <span>{{ currentSubject.name }}</span>
         </button>
+        <button
+          class="nav-btn"
+          :class="{ active: $route.name === 'admin' }"
+          @click="$router.push('/admin')"
+        >
+          <el-icon size="16"><Setting /></el-icon>
+          <span>教材管理</span>
+        </button>
       </nav>
     </header>
     <main class="app-main">
@@ -36,7 +44,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { School, HomeFilled, ChatLineRound } from '@element-plus/icons-vue'
+import { School, HomeFilled, ChatLineRound, Setting } from '@element-plus/icons-vue'
 import { useAppStore } from './stores/app'
 
 const route = useRoute()

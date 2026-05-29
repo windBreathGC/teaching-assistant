@@ -1,0 +1,307 @@
+{
+  "subject_id": "english_7b",
+  "subject_name": "英语",
+  "grade": "七年级下册",
+  "publisher": "人教PEP版",
+  "version": "2024",
+  "description": "含单元、词汇、语法",
+  "chapters": [
+    {
+      "id": "7b_e1",
+      "name": "Unit 1 Can you play the guitar?",
+      "lessons": [
+        {
+          "id": "7b_e1_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e1_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e2",
+      "name": "Unit 2 What time do you go to school?",
+      "lessons": [
+        {
+          "id": "7b_e2_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e2_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e3",
+      "name": "Unit 3 How do you get to school?",
+      "lessons": [
+        {
+          "id": "7b_e3_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e3_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e4",
+      "name": "Unit 4 Don't eat in class.",
+      "lessons": [
+        {
+          "id": "7b_e4_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e4_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e5",
+      "name": "Unit 5 Why do you like pandas?",
+      "lessons": [
+        {
+          "id": "7b_e5_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e5_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e6",
+      "name": "Unit 6 I'm watching TV.",
+      "lessons": [
+        {
+          "id": "7b_e6_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e6_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e7",
+      "name": "Unit 7 It's raining!",
+      "lessons": [
+        {
+          "id": "7b_e7_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e7_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e8",
+      "name": "Unit 8 Is there a post office near here?",
+      "lessons": [
+        {
+          "id": "7b_e8_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e8_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e9",
+      "name": "Unit 9 What does he look like?",
+      "lessons": [
+        {
+          "id": "7b_e9_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e9_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e10",
+      "name": "Unit 10 I'd like some noodles.",
+      "lessons": [
+        {
+          "id": "7b_e10_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e10_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e11",
+      "name": "Unit 11 How was your school trip?",
+      "lessons": [
+        {
+          "id": "7b_e11_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e11_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7b_e12",
+      "name": "Unit 12 What did you do last weekend?",
+      "lessons": [
+        {
+          "id": "7b_e12_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l3",
+          "name": "1. 情态动词can的用法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l4",
+          "name": "2. 现在进行时的用法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l5",
+          "name": "3. 一般过去时的用法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l6",
+          "name": "4. 祈使句的用法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l7",
+          "name": "5. There be句型",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l8",
+          "name": "6. How引导的特殊疑问句",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l9",
+          "name": "1. 如何写自我介绍",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l10",
+          "name": "2. 如何写邀请函",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l11",
+          "name": "3. 如何写游记",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l12",
+          "name": "4. 如何写明信片",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l13",
+          "name": "1. 西方节日",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l14",
+          "name": "2. 西方礼仪",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l15",
+          "name": "3. 英语国家概况",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l16",
+          "name": "1. 词汇记忆方法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l17",
+          "name": "2. 听力提高技巧",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l18",
+          "name": "3. 口语练习方法",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l19",
+          "name": "问候与告别",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l20",
+          "name": "感谢与道歉",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l21",
+          "name": "请求与许可",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l22",
+          "name": "询问信息",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7b_e12_l23",
+          "name": "谈论喜好",
+          "content_type": "现代文"
+        }
+      ]
+    }
+  ]
+}

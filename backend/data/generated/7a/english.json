@@ -1,0 +1,482 @@
+{
+  "subject_id": "english_7a",
+  "subject_name": "英语",
+  "grade": "七年级上册",
+  "publisher": "人教PEP版",
+  "version": "2024",
+  "description": "含单元、词汇、语法",
+  "chapters": [
+    {
+      "id": "7a_e1",
+      "name": "Starter Unit 1 Good morning!",
+      "lessons": [
+        {
+          "id": "7a_e1_l1",
+          "name": "1a 词汇学习",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e1_l2",
+          "name": "1b 对话练习",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e1_l3",
+          "name": "2a 字母学习 A-H",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e1_l4",
+          "name": "2e 名字学习",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e1_l5",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e1_l6",
+          "name": "Song: Good Morning Song",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e2",
+      "name": "Starter Unit 2 What's this in English?",
+      "lessons": [
+        {
+          "id": "7a_e2_l1",
+          "name": "1a 词汇学习",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e2_l2",
+          "name": "1c 对话练习",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e2_l3",
+          "name": "2a 字母学习 I-R",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e2_l4",
+          "name": "语法要点：不定冠词a/an",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e2_l5",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e2_l6",
+          "name": "Project: My Schoolbag",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e3",
+      "name": "Starter Unit 3 What color is it?",
+      "lessons": [
+        {
+          "id": "7a_e3_l1",
+          "name": "1a 词汇学习",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e3_l2",
+          "name": "1c 对话练习",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e3_l3",
+          "name": "2a 字母学习 S-Z",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e3_l4",
+          "name": "2e 26个字母歌",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e3_l5",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e3_l6",
+          "name": "Culture: Color Meanings in Different Cultures",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e4",
+      "name": "Unit 1 My name's Gina.",
+      "lessons": [
+        {
+          "id": "7a_e4_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e4_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e4_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e4_l4",
+          "name": "Pronunciation: /iː/ and /ɪ/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e4_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e4_l6",
+          "name": "Project: Make Your ID Card",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e5",
+      "name": "Unit 2 This is my sister.",
+      "lessons": [
+        {
+          "id": "7a_e5_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e5_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e5_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e5_l4",
+          "name": "Pronunciation: /ð/ and /θ/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e5_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e5_l6",
+          "name": "Project: My Family Tree",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e6",
+      "name": "Unit 3 Is this your pencil?",
+      "lessons": [
+        {
+          "id": "7a_e6_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e6_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e6_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e6_l4",
+          "name": "Pronunciation: /æ/ and /e/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e6_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e6_l6",
+          "name": "Project: Lost and Found Box",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e7",
+      "name": "Unit 4 Where's my schoolbag?",
+      "lessons": [
+        {
+          "id": "7a_e7_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e7_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e7_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e7_l4",
+          "name": "Pronunciation: /ɑː/ and /ʌ/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e7_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e7_l6",
+          "name": "Project: Design Your Dream Room",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e8",
+      "name": "Unit 5 Do you have a soccer ball?",
+      "lessons": [
+        {
+          "id": "7a_e8_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e8_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e8_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e8_l4",
+          "name": "Pronunciation: /ɔː/ and /oʊ/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e8_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e8_l6",
+          "name": "Project: Sports Survey",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e9",
+      "name": "Unit 6 Do you like bananas?",
+      "lessons": [
+        {
+          "id": "7a_e9_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e9_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e9_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e9_l4",
+          "name": "Pronunciation: /aɪ/ and /iː/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e9_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e9_l6",
+          "name": "Project: Design a Healthy Menu",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e10",
+      "name": "Unit 7 How much are these socks?",
+      "lessons": [
+        {
+          "id": "7a_e10_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e10_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e10_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e10_l4",
+          "name": "Pronunciation: /aʊ/ and /ɔɪ/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e10_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e10_l6",
+          "name": "Project: Design a Clothes Store Ad",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e11",
+      "name": "Unit 8 When is your birthday?",
+      "lessons": [
+        {
+          "id": "7a_e11_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e11_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e11_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e11_l4",
+          "name": "Pronunciation: /ɜː/ and /ə/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e11_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e11_l6",
+          "name": "Project: My School Calendar",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e11_l7",
+          "name": "Culture: Birthday Traditions Around the World",
+          "content_type": "现代文"
+        }
+      ]
+    },
+    {
+      "id": "7a_e12",
+      "name": "Unit 9 My favorite subject is science.",
+      "lessons": [
+        {
+          "id": "7a_e12_l1",
+          "name": "Section A",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l2",
+          "name": "Section B",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l3",
+          "name": "Self Check",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l4",
+          "name": "Pronunciation: /ʃ/ and /tʃ/",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l5",
+          "name": "Reflecting",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l6",
+          "name": "Project: My Ideal Schedule",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l7",
+          "name": "Song: Days of the Week Song",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l8",
+          "name": "语音知识",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l9",
+          "name": "不规则动词表",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l10",
+          "name": "常用表达",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l11",
+          "name": "写作指导",
+          "content_type": "写作"
+        },
+        {
+          "id": "7a_e12_l12",
+          "name": "单元语法速查表",
+          "content_type": "现代文"
+        },
+        {
+          "id": "7a_e12_l13",
+          "name": "文化知识集锦",
+          "content_type": "现代文"
+        }
+      ]
+    }
+  ]
+}
