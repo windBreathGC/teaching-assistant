@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -32,6 +31,7 @@ os.environ["CHROMA_PERSIST_DIR"] = os.path.join(_script_dir, "..", "chroma_db")
 
 from app.core.config import get_settings
 from app.services.rag import get_collection
+from app.services.textbook_parser import generate_metadata, parse_filename
 from app.utils.text_splitter import load_and_split
 from langchain_openai import OpenAIEmbeddings
 
@@ -50,16 +50,6 @@ TEXTBOOK_DIR = os.path.join(BASE_DIR, "textbook")
 DATA_DIR = os.path.join(BASE_DIR, "backend", "data")
 INDEX_PATH = os.path.join(DATA_DIR, "ingest_index.json")
 
-# 文件名解析正则:
-# 示例: 部编版2024七年级上册语文_完整教材内容.md
-FILENAME_PATTERN = re.compile(
-    r"^(?P<version>[^0-9]+)"
-    r"(?P<year>\d{4})"
-    r"(?P<grade>七年级|八年级|九年级|高一|高二|高三)"
-    r"(?P<semester>上册|下册)"
-    r"(?P<subject>语文|数学|英语|科学|社会)"
-    r"_(?P<content_type>.+)\.md$"
-)
 
 
 def _ensure_dir(path: str) -> None:
@@ -86,20 +76,6 @@ def _save_index(index: dict) -> None:
     with open(INDEX_PATH, "w", encoding="utf-8") as f:
         json.dump(index, f, ensure_ascii=False, indent=2)
 
-
-def _parse_filename(filename: str) -> dict | None:
-    """从文件名解析教材元数据。"""
-    m = FILENAME_PATTERN.match(filename)
-    if not m:
-        return None
-    return {
-        "version": m.group("version"),
-        "year": m.group("year"),
-        "grade": m.group("grade"),
-        "semester": m.group("semester"),
-        "subject": m.group("subject"),
-        "content_type": m.group("content_type"),
-    }
 
 
 def _file_stem(file_path: str) -> str:
@@ -137,6 +113,8 @@ def main():
         base_url=settings.OPENAI_BASE_URL,
     )
     index = _load_index()
+    METADATA_DIR = os.path.join(DATA_DIR, "generated")
+    _ensure_dir(METADATA_DIR)
 
     # 1. 扫描目录
     md_files = []
@@ -165,7 +143,7 @@ def main():
         current_files.add(rel_path)
         basename = os.path.basename(file_path)
 
-        meta = _parse_filename(basename)
+        meta = parse_filename(basename)
         if not meta:
             logger.warning("文件名格式不匹配，跳过: %s", basename)
             continue
@@ -176,6 +154,13 @@ def main():
         if existing and existing.get("sha256") == sha:
             logger.info("未变更，跳过: %s", basename)
             continue
+
+        # 文件有变更，先生成/更新 metadata.json
+        try:
+            meta_path = generate_metadata(file_path, output_dir=METADATA_DIR)
+            logger.info("  已更新 metadata: %s", os.path.basename(meta_path))
+        except Exception as e:
+            logger.warning("  生成 metadata 失败: %s", e)
 
         stem = _file_stem(file_path)
 

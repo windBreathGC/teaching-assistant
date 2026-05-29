@@ -227,7 +227,9 @@ def generate_metadata(file_path: str, output_dir: str | None = None) -> Path:
     subject_id = SUBJECT_ID_MAP.get(meta["subject"], meta["subject"])
 
     if output_dir is None:
-        base = Path(path).parent.parent.parent / "backend" / "data" / "generated"
+        # __file__ = .../backend/app/services/textbook_parser.py
+        # 向上4级到达项目根目录
+        base = Path(__file__).parent.parent.parent.parent / "backend" / "data" / "generated"
     else:
         base = Path(output_dir)
 
