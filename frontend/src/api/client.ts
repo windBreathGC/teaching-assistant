@@ -151,6 +151,7 @@ export const adminApi = {
   listTextbooks: () => api.get<TextbookItem[]>('/admin/textbooks'),
   parse: (filename: string) => api.post('/admin/textbooks/parse', { filename }),
   ingest: (filename: string) => api.post<{ task_id: string; status: string; message: string }>('/admin/textbooks/ingest', { filename }),
+  batchIngest: () => api.post<{ task_id: string; status: string; message: string }>('/admin/batch-ingest'),
   getTask: (taskId: string) => api.get<TaskInfo>(`/admin/tasks/${taskId}`),
 }
 
