@@ -25,16 +25,23 @@
           <el-icon size="16"><ChatLineRound /></el-icon>
           <span>{{ currentSubject.name }}</span>
         </button>
+      </nav>
+      <div class="header-actions">
         <button
           class="nav-btn"
           :class="{ active: $route.name === 'admin' }"
           @click="$router.push('/admin')"
+          title="教材管理"
         >
           <el-icon size="16"><Setting /></el-icon>
-          <span>教材管理</span>
         </button>
-      </nav>
+        <button class="nav-btn" @click="modelStore.openDialog()" title="模型接入">
+          <el-icon size="16"><Connection /></el-icon>
+        </button>
+        <TaskCenter />
+      </div>
     </header>
+    <ModelManager />
     <main class="app-main">
       <router-view />
     </main>
@@ -44,11 +51,15 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { School, HomeFilled, ChatLineRound, Setting } from '@element-plus/icons-vue'
+import { School, HomeFilled, ChatLineRound, Setting, Connection } from '@element-plus/icons-vue'
 import { useAppStore } from './stores/app'
+import { useModelStore } from './stores/modelStore'
+import ModelManager from './components/ModelManager.vue'
+import TaskCenter from './components/TaskCenter.vue'
 
 const route = useRoute()
 const store = useAppStore()
+const modelStore = useModelStore()
 const currentSubject = computed(() => store.currentSubject)
 
 watch(() => route.path, (path) => {
@@ -131,6 +142,17 @@ watch(() => route.path, (path) => {
 .nav-btn.active {
   background: var(--accent-primary-light);
   color: var(--accent-primary);
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.header-actions :deep(.nav-btn) {
+  padding: var(--space-2);
+  min-width: 32px;
+  height: 32px;
+  justify-content: center;
 }
 .app-main {
   flex: 1;

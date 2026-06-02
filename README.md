@@ -97,7 +97,7 @@ cp .env.example .env
 | `OPENAI_API_KEY` | 是 | LLM API 密钥 | `sk-...` |
 | `OPENAI_BASE_URL` | 是 | API 基础地址 | `https://api.openai.com/v1/` |
 | `LLM_MODEL` | 否 | 对话模型名称 | `gpt-4o-mini` |
-| `EMBEDDING_MODEL` | 否 | 嵌入模型名称 | `text-embedding-3-small` |
+| `EMBEDDING_MODEL` | 否 | 嵌入模型名称（**切换后必须重新向量化全部教材**） | `text-embedding-3-small` |
 | `BACKEND_PORT` | 否 | 后端端口（默认 8000） | `8000` |
 | `FRONTEND_PORT` | 否 | 前端端口（默认 5173） | `5173` |
 | `DEBUG` | 否 | 调试模式（默认 False） | `False` |
@@ -226,6 +226,59 @@ python scripts/ingest_textbooks.py
 1. 准备对应年级的教材 Markdown 文件
 2. 在 `subjects.py` 的 `_GRADES` 列表中添加年级
 3. 运行导入脚本
+
+## ⚠️ Embedding 模型配置警告
+
+### 为什么 Embedding 模型不能随意切换？
+
+本系统采用 **RAG（检索增强生成）** 架构，教材内容在导入时通过 Embedding 模型转换为高维向量，存储在 ChromaDB 中。后续用户提问时，同样使用该模型将问题向量化，然后在向量库中搜索语义最相似的教材片段。
+
+**核心原则：写入和查询必须使用同一个 Embedding 模型，否则语义搜索将完全失效。**
+
+### 切换 Embedding 模型的风险
+
+| 风险 | 说明 |
+|------|------|
+| **向量空间不兼容** | 不同模型（如 OpenAI `text-embedding-3-small` vs. BGE-large）将文本映射到完全不同的向量空间，彼此间不存在可比性 |
+| **维度不匹配** | ChromaDB 的 Collection 维度在创建时固定，新模型若维度不同，插入/查询将直接报错 |
+| **搜索结果错乱** | 即使维度相同，混合使用不同模型的向量会导致检索结果完全不可靠，AI 回答偏离教材内容 |
+| **语义编码差异** | 不同模型对同一文本的语义编码方式不同，中文优化模型 vs. 通用模型在教材检索上表现差异显著 |
+
+### 正确的模型配置策略
+
+本系统采用 **"Embedding 固定 + LLM 灵活切换"** 的双层策略：
+
+```
+Embedding 模型（固定，.env 配置） ──→ ChromaDB（知识库）
+        ↑                                  ↓
+   向量化教材                        语义检索 Top-K
+        ↑                                  ↓
+   用户提问  ──→  LLM 对话模型（UI 灵活切换）──→ 生成回答
+```
+
+| 模型类型 | 配置位置 | 是否可热切换 | 切换影响 |
+|----------|----------|-------------|----------|
+| **Embedding 模型** | `.env` 的 `EMBEDDING_MODEL` | ❌ 不可 | 必须清空向量库并重新向量化全部教材 |
+| **LLM 对话模型** | 前端「模型接入管理」 | ✅ 可以 | 仅影响回答生成风格，不影响知识检索 |
+
+- **Embedding 模型**：由 `.env` 固定配置，项目初始化时选定后不建议变更
+- **LLM 对话模型**：可通过前端「模型接入管理」自由添加、编辑、切换，不影响知识库检索质量
+
+### 如果必须更换 Embedding 模型
+
+若因业务需要确实要更换 Embedding 模型，必须执行以下操作：
+
+1. **停止服务**
+2. **清空向量库**：删除 `backend/chroma_db/` 目录下的相关 Collection 数据
+3. **修改 `.env`**：更新 `EMBEDDING_MODEL` 为新的模型名称
+4. **重新向量化**：通过管理后台的「一键全量更新」功能，或手动运行：
+   ```bash
+   cd backend
+   python scripts/ingest_textbooks.py
+   ```
+5. **验证**：向量化完成后，进行问答测试，确认检索结果正常
+
+> ⚠️ **警告**：未完成重新向量化前，切勿启动服务供用户使用，否则所有知识问答都将返回错误结果。
 
 ## 常见问题
 

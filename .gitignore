@@ -33,6 +33,8 @@ logs/
 *.sqlite3
 # Auto-generated index (produced by ingest_textbooks.py)
 backend/data/ingest_index.json
+# Encryption key for api_key storage (auto-generated)
+backend/data/.encryption_key
 
 # IDE
 .vscode/

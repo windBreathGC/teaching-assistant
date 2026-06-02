@@ -145,6 +145,64 @@ export interface TaskInfo {
   progress: number
   message: string
   result: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface LLMConfig {
+  base_url: string
+  api_key: string
+  model_name: string
+  temperature: number
+}
+
+export interface GenerateOutlineReq {
+  subject: string
+  grade: string
+  semester: string
+  publisher: string
+  version_year: string
+  region: string
+  notes: string
+  model_id: string
+}
+
+export interface GenerateTextbookReq {
+  outline: Record<string, unknown>
+  subject: string
+  grade: string
+  semester: string
+  publisher: string
+  version_year: string
+  region: string
+  model_id: string
+}
+
+export interface ModelProvider {
+  id: string
+  name: string
+  base_url: string
+  api_key: string
+  model_name: string
+  temperature: number
+  is_default: boolean
+}
+
+export interface AnalyzeReport {
+  filename: string
+  structure_valid: boolean
+  has_valid_filename: boolean
+  has_title: boolean
+  chapter_count: number
+  lesson_count: number
+  total_chars: number
+  avg_chars_per_chapter: number
+  has_failed_sections: boolean
+  subject: string | null
+  warnings: string[]
+  recommendations: string[]
+  detail: Record<string, unknown>
+  ready_for_ingest: boolean
 }
 
 export const adminApi = {
@@ -153,6 +211,15 @@ export const adminApi = {
   ingest: (filename: string) => api.post<{ task_id: string; status: string; message: string }>('/admin/textbooks/ingest', { filename }),
   batchIngest: () => api.post<{ task_id: string; status: string; message: string }>('/admin/batch-ingest'),
   getTask: (taskId: string) => api.get<TaskInfo>(`/admin/tasks/${taskId}`),
+  generateOutline: (data: GenerateOutlineReq) => api.post<{ status: string; task_id: string; message: string }>('/admin/generate-outline', data),
+  listTasks: (params?: { skip?: number; limit?: number }) => api.get<{ tasks: TaskInfo[]; total: number }>('/admin/tasks', { params }),
+  generateTextbook: (data: GenerateTextbookReq) => api.post<{ status: string; task_id: string; message: string }>('/admin/generate-textbook', data),
+  analyzeTextbook: (filename: string) => api.post<{ status: string; report: AnalyzeReport }>('/admin/analyze-textbook', { filename }),
+  listModels: () => api.get<{ status: string; models: ModelProvider[] }>('/admin/models'),
+  addModel: (data: Omit<ModelProvider, 'id'>) => api.post<{ status: string; model: ModelProvider }>('/admin/models', data),
+  updateModel: (id: string, data: Partial<Omit<ModelProvider, 'id'>>) => api.put<{ status: string; model: ModelProvider }>(`/admin/models/${id}`, data),
+  deleteModel: (id: string) => api.delete<{ status: string; message: string }>(`/admin/models/${id}`),
+  setDefaultModel: (id: string) => api.post<{ status: string; message: string }>(`/admin/models/${id}/default`),
 }
 
 export const quizApi = {

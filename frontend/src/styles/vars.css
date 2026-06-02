@@ -1,9 +1,9 @@
 :root {
   /* 核心色板 - 现代杂志风 */
-  --bg-base: #faf9f7;
+  --bg-base: #f7f5f0;
   --bg-card: #ffffff;
-  --bg-sidebar: #f5f4f1;
-  --bg-hover: #f0eeea;
+  --bg-sidebar: #f0ede8;
+  --bg-hover: #eae6df;
   --bg-code: #f3f1ed;
 
   --text-primary: #1a1a1a;
@@ -11,8 +11,8 @@
   --text-tertiary: #8a8a8a;
   --text-inverse: #ffffff;
 
-  --border-light: #e8e6e1;
-  --border-medium: #d4d0c8;
+  --border-light: #e2ddd4;
+  --border-medium: #c8c2b6;
 
   /* 学科主题色 - 鲜明但不刺眼 */
   --subject-chinese: #c45c3e;
@@ -22,12 +22,14 @@
   --subject-social: #b5894a;
 
   /* 功能色 */
-  --accent-primary: #2c5aa0;
+  --accent-primary: #1e4a8a;
   --accent-primary-light: #e8f0fe;
   --accent-success: #3a8c5d;
   --accent-success-light: #e6f4ea;
   --accent-warning: #c98b2a;
   --accent-danger: #c44b4b;
+  --accent-warm: #c45c3e;
+  --accent-warm-light: #fdf2ef;
 
   /* 字体 */
   --font-display: "Noto Serif SC", "Source Han Serif SC", "STSong", "SimSun", serif;
