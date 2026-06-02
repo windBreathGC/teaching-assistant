@@ -1,15 +1,21 @@
 # 中学伴学助教
 
-基于 RAG（检索增强生成）的中学多课程 AI 学习智能体，覆盖语文、数学、英语、科学、社会五门学科，为学生提供教材知识问答、课文讲解、随堂测验等个性化学习辅导。
+基于 RAG（检索增强生成）的中学多课程 AI 学习智能体，覆盖语文、数学、英语、科学、社会五门学科，为学生提供教材知识问答、课文讲解、随堂测验、教材管理等个性化学习辅导。
 
 ## 功能特性
 
 - **多学科覆盖**：语文（部编版）、数学（浙教版）、英语（人教PEP版）、科学（浙教版）、社会（人教版）
+- **多年级支持**：七年级上册、七年级下册（可扩展六至九年级）
 - **AI 知识问答**：基于教材内容的 RAG 检索，回答与课本相关的问题
 - **课文讲解**：自动加载课文原文，AI 逐段讲解重点难点
 - **随堂测验**：AI 根据当前章节生成选择题、填空题、简答题
 - **章节导航**：按年级 -> 学科 -> 单元 -> 课文的层级结构浏览教材
 - **流式响应**：AI 回答采用流式输出，响应更快更自然
+- **教材管理后台**：扫描、解析、向量化教材，支持一键全量更新
+- **智能采集**：自动解析 Markdown 教材，生成结构化 JSON 元数据与向量化索引
+- **教材生成**：根据学科大纲自动生成教材内容
+- **任务中心**：异步任务管理，实时查看教材解析、向量化等任务进度
+- **模型接入管理**：支持多模型配置、默认模型切换，兼容任意 OpenAI 格式 API
 
 ## 技术架构
 
@@ -23,6 +29,11 @@
                                    |    ChromaDB     |
                                    |  (向量数据库)    |
                                    +-----------------+
+                                            |
+                                   +--------v--------+
+                                   |   SQLite (aiosqlite)
+                                   |  (模型配置、任务记录)
+                                   +-----------------+
 ```
 
 ### 前端技术栈
@@ -31,6 +42,7 @@
 - [Element Plus](https://element-plus.org/) UI 组件库
 - [Pinia](https://pinia.vuejs.org/) 状态管理
 - [Vue Router](https://router.vuejs.org/) 路由
+- [Axios](https://axios-http.com/) HTTP 客户端
 - [Markdown-it](https://github.com/markdown-it/markdown-it) + [KaTeX](https://katex.org/) 内容渲染
 
 ### 后端技术栈
@@ -38,6 +50,7 @@
 - [FastAPI](https://fastapi.tiangolo.com/) Web 框架
 - [ChromaDB](https://www.trychroma.com/) 向量数据库（教材知识库）
 - [LangChain](https://www.langchain.com/) + [LangGraph](https://langchain-ai.github.io/langgraph/) AI Agent 编排
+- [SQLAlchemy](https://www.sqlalchemy.org/) + [aiosqlite](https://github.com/omnilib/aiosqlite) 异步 ORM / SQLite
 - [OpenAI](https://platform.openai.com/) 兼容 API（支持第三方 LLM 平台）
 
 ## 项目结构
@@ -46,23 +59,32 @@
 .
 ├── backend/                    # 后端服务
 │   ├── app/
-│   │   ├── api/               # API 路由（health / subjects / chat）
+│   │   ├── api/               # API 路由（health / subjects / chat / admin）
 │   │   ├── core/              # 配置、常量
+│   │   ├── db/                # 数据库模型与连接（SQLite）
 │   │   ├── models/            # Pydantic 数据模型
-│   │   ├── services/          # 业务逻辑（RAG、教学 Agent）
+│   │   ├── services/          # 业务逻辑（RAG、教学 Agent、教材解析/生成/分析、模型配置、任务管理）
 │   │   └── utils/             # 工具函数
 │   ├── chroma_db/             # 向量数据库持久化目录
+│   ├── data/                  # 结构化数据与 SQLite 数据库
+│   │   ├── generated/         # 解析生成的教材 JSON 数据
+│   │   ├── subjects/          # 学科元数据清单
+│   │   ├── ingest_index.json  # 向量化索引记录
+│   │   └── app.db             # SQLite 数据库
 │   ├── scripts/               # 数据导入脚本
 │   └── requirements.txt       # Python 依赖
 ├── frontend/                   # 前端应用
 │   ├── src/
 │   │   ├── api/               # HTTP 客户端封装
-│   │   ├── components/        # 公共组件
-│   │   ├── stores/            # Pinia 状态管理
-│   │   └── views/             # 页面视图
+│   │   ├── components/        # 公共组件（ChatWindow、ModelManager、TaskCenter、SubjectTree 等）
+│   │   ├── stores/            # Pinia 状态管理（app、modelStore）
+│   │   ├── styles/            # 全局样式与 CSS 变量
+│   │   ├── utils/             # 工具函数
+│   │   └── views/             # 页面视图（Home、Chat、Quiz、Admin）
 │   └── package.json           # Node.js 依赖
 ├── textbook/                   # 教材原文 Markdown
 ├── start.py                    # 一键启动脚本
+├── start_prod.py               # 生产环境启动脚本
 ├── .env                        # 环境变量配置
 └── .env.example                # 环境变量示例
 ```
@@ -164,10 +186,13 @@ npm run dev
 |------|------|
 | `uvicorn app.main:app --reload` | 开发模式启动（热重载） |
 | `python -m uvicorn app.main:app --host 0.0.0.0` | 生产模式启动 |
+| `python scripts/ingest_textbooks.py` | 手动导入教材到向量库 |
 
 ## 教材数据
 
 教材原文存放于 `textbook/` 目录，按 Markdown 格式组织：
+
+### 七年级上册
 
 | 文件 | 学科 | 版本 | 年级 |
 |------|------|------|------|
@@ -177,9 +202,19 @@ npm run dev
 | `浙教版2024七年级上册科学_完整教材内容.md` | 科学 | 浙教版 | 七年级上册 |
 | `人教版2024七年级上册社会_教材梳理知识库.md` | 社会 | 人教版 | 七年级上册 |
 
+### 七年级下册
+
+| 文件 | 学科 | 版本 | 年级 |
+|------|------|------|------|
+| `部编版2024七年级下册语文_完整教材内容.md` | 语文 | 部编版 | 七年级下册 |
+| `浙教版2024七年级下册数学_完整教材内容.md` | 数学 | 浙教版 | 七年级下册 |
+| `人教PEP版2024七年级下册英语_完整教材内容.md` | 英语 | 人教PEP版 | 七年级下册 |
+| `浙教版2024七年级下册科学_完整教材内容.md` | 科学 | 浙教版 | 七年级下册 |
+| `人教版2024七年级下册社会_完整教材内容.md` | 社会 | 人教版 | 七年级下册 |
+
 ### 导入教材到向量库
 
-首次部署或教材更新后，执行导入脚本：
+首次部署或教材更新后，可通过管理后台「一键全量更新」功能自动导入，或手动执行导入脚本：
 
 ```bash
 cd backend
@@ -192,16 +227,38 @@ python scripts/ingest_textbooks.py
 
 后端提供以下 RESTful API：
 
+### 公共接口
+
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `GET /` | - | 服务根路径，返回基本信息 |
-| `GET /health` | - | 健康检查 |
+| `GET /` | - | 服务根路径，返回 SPA 或基本信息 |
+| `GET /health` | GET | 健康检查 |
 | `GET /subjects` | GET | 获取所有学科列表 |
 | `GET /subjects/{subject_id}/chapters` | GET | 获取某学科的章节列表 |
 | `GET /subjects/{subject_id}/chapters/{chapter_id}/lessons` | GET | 获取某章节下的课文/课时列表 |
 | `GET /subjects/{subject_id}/lessons/{lesson_id}/content` | GET | 获取某课文的原文内容 |
 | `POST /chat` | POST | AI 对话（流式 SSE） |
 | `POST /quiz/generate` | POST | 生成测验题目（流式 SSE） |
+
+### 管理后台接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `GET /admin/textbooks` | GET | 获取教材扫描列表（解析/向量化状态） |
+| `POST /admin/textbooks/parse` | POST | 解析指定教材为结构化 JSON |
+| `POST /admin/textbooks/ingest` | POST | 将指定教材向量化入库 |
+| `POST /admin/textbooks/ingest-all` | POST | 一键全量更新（解析+向量化所有教材） |
+| `GET /admin/textbooks/status` | GET | 获取向量化整体状态 |
+| `POST /admin/textbooks/generate` | POST | 根据大纲生成教材内容 |
+| `GET /admin/models` | GET | 获取所有模型配置 |
+| `POST /admin/models` | POST | 添加模型配置 |
+| `PUT /admin/models/{model_id}` | PUT | 更新模型配置 |
+| `DELETE /admin/models/{model_id}` | DELETE | 删除模型配置 |
+| `POST /admin/models/{model_id}/default` | POST | 设为默认模型 |
+| `GET /admin/models/default` | GET | 获取当前默认模型 |
+| `GET /admin/tasks` | GET | 获取任务列表 |
+| `GET /admin/tasks/{task_id}` | GET | 获取单个任务详情 |
+| `DELETE /admin/tasks/{task_id}` | DELETE | 删除任务 |
 
 完整 API 文档可在后端启动后访问：http://localhost:8000/docs
 
@@ -212,20 +269,21 @@ python scripts/ingest_textbooks.py
 | 首页 / 年级选择 | `/` | 选择年级，浏览学科卡片 |
 | AI 学习对话 | `/chat/:subject` | 与 AI 进行课文讲解、问答 |
 | 随堂测验 | `/quiz` | 生成并作答针对性练习题 |
+| 管理后台 | `/admin` | 教材管理、任务中心、模型接入配置 |
 
 ## 开发指南
 
 ### 添加新学科
 
-1. 在 `textbook/` 下添加教材 Markdown 文件（命名格式：`{版本}{年份}{年级}上册{学科}_{内容类型}.md`）
-2. 在 `backend/app/api/subjects.py` 的 `_SUBJECTS_BASE` 列表中添加学科元数据
-3. 运行 `python scripts/ingest_textbooks.py` 导入向量库
+1. 在 `textbook/` 下添加教材 Markdown 文件（命名格式：`{版本}{年份}{年级}{学期}{学科}_{内容类型}.md`）
+2. 在 `backend/data/subjects/manifest.json` 中添加学科元数据
+3. 通过管理后台「一键全量更新」或手动运行 `python scripts/ingest_textbooks.py` 导入向量库
 
 ### 添加新年级
 
 1. 准备对应年级的教材 Markdown 文件
-2. 在 `subjects.py` 的 `_GRADES` 列表中添加年级
-3. 运行导入脚本
+2. 在 `backend/data/subjects/manifest.json` 中添加年级信息
+3. 通过管理后台执行一键全量更新
 
 ## ⚠️ Embedding 模型配置警告
 
@@ -293,6 +351,10 @@ Embedding 模型（固定，.env 配置） ──→ ChromaDB（知识库）
 **Q: 支持其他年级吗？**
 
 代码层面已支持六到九年级扩展，只需准备对应教材数据并执行导入即可。
+
+**Q: 如何更换 LLM 模型？**
+
+无需修改 `.env`，直接在前端「管理后台」->「模型接入管理」中添加或编辑模型配置，并设为默认即可。LLM 模型切换不会影响知识检索。
 
 ## 许可证
 

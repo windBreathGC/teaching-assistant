@@ -106,10 +106,15 @@ def ingest_single_file(
     existing = index["files"].get(rel_path)
 
     if existing and existing.get("sha256") == sha:
-        _report(100, "文件未变更，跳过")
-        return {"status": "skipped", "chunks": existing.get("chunk_count", 0), "message": "文件未变更"}
+        stem = _file_stem(file_path)
+        chunk_count = existing.get("chunk_count", 0)
+        if _verify_chromadb_data(stem, chunk_count):
+            _report(100, "文件未变更，跳过")
+            return {"status": "skipped", "chunks": chunk_count, "message": "文件未变更"}
+        _report(5, "索引存在但向量库数据缺失，重新入库")
+    else:
+        stem = _file_stem(file_path)
 
-    stem = _file_stem(file_path)
     collection = get_collection()
     embeddings = OpenAIEmbeddings(
         model=settings.EMBEDDING_MODEL,
@@ -171,6 +176,21 @@ def ingest_single_file(
     return {"status": "success", "chunks": len(chunks), "message": f"已入库 {len(chunks)} chunks"}
 
 
+def _verify_chromadb_data(stem: str, chunk_count: int) -> bool:
+    """验证 ChromaDB collection 中是否确实存在对应的数据。"""
+    if chunk_count <= 0:
+        return False
+    try:
+        collection = get_collection()
+        # 抽样检查前 3 个 chunk id，避免全量查询
+        sample_ids = [f"{stem}_chunk_{i}" for i in range(min(3, chunk_count))]
+        result = collection.get(ids=sample_ids)
+        docs = result.get("documents") or []
+        return any(d is not None and d != "" for d in docs)
+    except Exception:
+        return False
+
+
 def get_ingest_status(filename: str) -> dict:
     """查询指定教材的入库状态。"""
     path = TEXTBOOK_DIR / filename
@@ -192,16 +212,24 @@ def get_ingest_status(filename: str) -> dict:
     # 检查是否已向量化
     index = _load_index()
     rel_path = os.path.relpath(str(path), BASE_DIR)
-    ingested = rel_path in index["files"]
+    in_index = rel_path in index["files"]
     sha_match = False
-    if ingested:
+    chunks_in_db = False
+    chunk_count = 0
+    if in_index:
         current_sha = _compute_sha256(str(path))
         sha_match = index["files"][rel_path].get("sha256") == current_sha
+        chunk_count = index["files"][rel_path].get("chunk_count", 0)
+        stem = _file_stem(str(path))
+        chunks_in_db = _verify_chromadb_data(stem, chunk_count)
+
+    ingested = in_index and sha_match and chunks_in_db
+    outdated = in_index and (not sha_match or not chunks_in_db)
 
     return {
         "exists": True,
         "parsed": parsed,
-        "ingested": ingested and sha_match,
-        "outdated": ingested and not sha_match,
-        "chunks": index["files"][rel_path].get("chunk_count") if ingested else None,
+        "ingested": ingested,
+        "outdated": outdated,
+        "chunks": chunk_count if in_index else None,
     }
