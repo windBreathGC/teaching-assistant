@@ -7,6 +7,7 @@
 - **多学科覆盖**：语文（部编版）、数学（浙教版）、英语（人教PEP版）、科学（浙教版）、社会（人教版）
 - **多年级支持**：七年级上册、七年级下册（可扩展六至九年级）
 - **AI 知识问答**：基于教材内容的 RAG 检索，回答与课本相关的问题
+- **混合检索**：向量语义 + BM25 关键词双路召回，RRF 融合排序，兼顾语义理解与术语/课文名精确匹配
 - **课文讲解**：自动加载课文原文，AI 逐段讲解重点难点
 - **随堂测验**：AI 根据当前章节生成选择题、填空题、简答题
 - **章节导航**：按年级 -> 学科 -> 单元 -> 课文的层级结构浏览教材
@@ -49,9 +50,11 @@
 
 - [FastAPI](https://fastapi.tiangolo.com/) Web 框架
 - [ChromaDB](https://www.trychroma.com/) 向量数据库（教材知识库）
+- [bm25s](https://github.com/xhluca/bm25s) BM25 关键词检索（混合召回，字符 n-gram 分词）
 - [LangChain](https://www.langchain.com/) + [LangGraph](https://langchain-ai.github.io/langgraph/) AI Agent 编排
 - [SQLAlchemy](https://www.sqlalchemy.org/) + [aiosqlite](https://github.com/omnilib/aiosqlite) 异步 ORM / SQLite
 - [OpenAI](https://platform.openai.com/) 兼容 API（支持第三方 LLM 平台）
+- [uv](https://docs.astral.sh/uv/) Python 包管理（`pyproject.toml` + `uv.lock` 锁定依赖）
 
 ## 项目结构
 
@@ -69,10 +72,13 @@
 │   ├── data/                  # 结构化数据与 SQLite 数据库
 │   │   ├── generated/         # 解析生成的教材 JSON 数据
 │   │   ├── subjects/          # 学科元数据清单
-│   │   ├── ingest_index.json  # 向量化索引记录
+│   │   ├── ingest_index.json  # chunk 级增量向量化索引
 │   │   └── app.db             # SQLite 数据库
 │   ├── scripts/               # 数据导入脚本
-│   └── requirements.txt       # Python 依赖
+│   ├── pyproject.toml         # 项目元信息与依赖声明（uv）
+│   ├── uv.lock                # 依赖锁文件（uv）
+│   ├── .python-version        # Python 版本固定（uv）
+│   └── requirements.txt       # Python 依赖（pip 兼容保留）
 ├── frontend/                   # 前端应用
 │   ├── src/
 │   │   ├── api/               # HTTP 客户端封装
@@ -93,7 +99,8 @@
 
 ### 环境要求
 
-- Python 3.10+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/)（推荐的 Python 包管理器）
 - Node.js 18+
 - （可选）Conda / Miniconda
 
@@ -128,7 +135,15 @@ cp .env.example .env
 
 ### 3. 安装依赖
 
-**后端（Python）**
+**后端（Python，推荐 uv）**
+
+```bash
+cd backend
+uv sync          # 按 uv.lock 创建 .venv 并安装全部依赖
+```
+
+<details>
+<summary>使用 pip / Conda 的传统方式</summary>
 
 ```bash
 # 如果使用 Conda
@@ -136,6 +151,8 @@ conda activate learn
 # 或使用系统 Python
 pip install -r backend/requirements.txt
 ```
+
+</details>
 
 **前端（Node.js）**
 
@@ -153,6 +170,8 @@ python start.py
 ```
 
 该脚本会同时启动后端（`http://localhost:8000`）和前端（`http://localhost:5173`）。
+
+> 启动脚本按以下优先级选择 Python 解释器：`PYTHON_PATH` 环境变量 → `backend/.venv`（uv 创建）→ Conda `learn` 环境 → 当前解释器。执行过 `uv sync` 后会自动使用 uv 管理的依赖环境，无需额外配置。
 
 **手动启动**
 
@@ -184,9 +203,12 @@ npm run dev
 
 | 命令 | 说明 |
 |------|------|
-| `uvicorn app.main:app --reload` | 开发模式启动（热重载） |
+| `uv sync` | 安装/同步依赖（在 `backend/` 下执行） |
+| `uv add <包名>` | 新增依赖并更新 `pyproject.toml` 与 `uv.lock` |
+| `uv export -o requirements.txt` | 从锁文件导出 pip 兼容的依赖清单 |
+| `uv run uvicorn app.main:app --reload` | 开发模式启动（热重载） |
 | `python -m uvicorn app.main:app --host 0.0.0.0` | 生产模式启动 |
-| `python scripts/ingest_textbooks.py` | 手动导入教材到向量库 |
+| `python scripts/ingest_textbooks.py` | 手动增量导入教材到向量库 |
 
 ## 教材数据
 
@@ -221,7 +243,15 @@ cd backend
 python scripts/ingest_textbooks.py
 ```
 
-该脚本会将 `textbook/` 下的 Markdown 文件切分并向量化，存入 `backend/chroma_db/`。
+该脚本会将 `textbook/` 下的 Markdown 文件切分并向量化，存入 `backend/chroma_db/`。脚本与支持单文件入库的管理后台服务共用同一套核心逻辑（`backend/app/services/ingest_core.py`），两个入口行为一致。
+
+### 后端设计细节
+
+混合检索（向量 + BM25 双路召回、RRF 融合）、chunk 级增量入库、LangGraph 对话工作流等后端设计与实现细节，统一收录在 [backend/README.md](backend/README.md)：
+
+- 知识检索：三级策略（metadata 精确匹配优先 → 混合检索 → RRF 融合）
+- LangGraph 工作流：意图识别 → 条件路由 → 检索/出题/闲聊分支
+- 向量化增量更新：chunk 级 diff、稳定 ID、先增后删、数据自愈
 
 ## API 接口
 
@@ -237,8 +267,12 @@ python scripts/ingest_textbooks.py
 | `GET /subjects/{subject_id}/chapters` | GET | 获取某学科的章节列表 |
 | `GET /subjects/{subject_id}/chapters/{chapter_id}/lessons` | GET | 获取某章节下的课文/课时列表 |
 | `GET /subjects/{subject_id}/lessons/{lesson_id}/content` | GET | 获取某课文的原文内容 |
-| `POST /chat` | POST | AI 对话（流式 SSE） |
-| `POST /quiz/generate` | POST | 生成测验题目（流式 SSE） |
+| `POST /chat` | POST | AI 对话（非流式） |
+| `POST /chat/stream` | POST | AI 对话（SSE 流式，逐 token 返回） |
+| `POST /chat/quiz` | POST | 生成测验题目（非流式） |
+| `POST /chat/quiz/stream` | POST | 生成测验题目（SSE 流式） |
+
+> 流式接口的 SSE 传输格式与事件协议（`intent` / `token` / `done` / `error`）详见 [backend/README.md](backend/README.md)。
 
 ### 管理后台接口
 

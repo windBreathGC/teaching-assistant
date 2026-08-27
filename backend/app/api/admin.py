@@ -4,9 +4,10 @@ import threading
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core.auth import verify_admin_token
 from app.services.textbook_parser import scan_textbooks, generate_metadata
 from app.services.ingest_service import ingest_single_file, get_ingest_status
 from app.services.textbook_generator import generate_outline, generate_textbook
@@ -16,7 +17,7 @@ from app.services import task_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(verify_admin_token)])
 
 
 # ── 异步桥接：BackgroundTasks 在线程池中运行，而 aiosqlite 需要事件循环 ──
@@ -45,6 +46,19 @@ def _get_file_lock(file_path: str) -> threading.Lock:
 
 BASE_DIR = Path(__file__).parent.parent.parent.parent
 TEXTBOOK_DIR = BASE_DIR / "textbook"
+
+
+def _resolve_textbook_path(filename: str) -> Path:
+    """将教材文件名解析为绝对路径，并确保其位于 textbook/ 目录内。
+
+    防止 filename 中包含 ../ 等路径遍历，对目录外文件触发解析/向量化。
+    """
+    file_path = (TEXTBOOK_DIR / filename).resolve()
+    if TEXTBOOK_DIR.resolve() not in file_path.parents:
+        raise HTTPException(status_code=400, detail="非法文件路径")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="教材文件不存在")
+    return file_path
 
 
 class TextbookItem(BaseModel):
@@ -175,7 +189,7 @@ def _run_batch_ingest_task(task_id: str):
         filename = item["filename"]
         file_path = (TEXTBOOK_DIR / filename).resolve()
         # 安全检查：确保解析后的路径仍在 textbook/ 目录内
-        if not str(file_path).startswith(str(TEXTBOOK_DIR.resolve())):
+        if TEXTBOOK_DIR.resolve() not in file_path.parents:
             logger.warning("非法路径，跳过: %s", filename)
             failed += 1
             errors.append(f"{filename}: 非法路径")
@@ -376,9 +390,7 @@ async def list_textbooks():
 async def parse_textbook(req: ParseRequest):
     """解析指定教材Markdown，生成 metadata.json。
     同步执行，通常几秒完成。"""
-    file_path = TEXTBOOK_DIR / req.filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="教材文件不存在")
+    file_path = _resolve_textbook_path(req.filename)
 
     try:
         out_path = generate_metadata(str(file_path))
@@ -396,9 +408,7 @@ async def parse_textbook(req: ParseRequest):
 async def ingest_textbook(req: IngestRequest, background_tasks: BackgroundTasks):
     """触发指定教材的向量化入库。
     立即返回任务ID，实际工作在后台执行（可能耗时数分钟）。"""
-    file_path = TEXTBOOK_DIR / req.filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="教材文件不存在")
+    file_path = _resolve_textbook_path(req.filename)
 
     task_id = str(uuid.uuid4())
     await task_service.create_task(
@@ -521,12 +531,7 @@ async def api_generate_textbook(req: GenerateTextbookRequest, background_tasks: 
 @router.post("/analyze-textbook")
 async def api_analyze_textbook(req: AnalyzeRequest):
     """分析指定教材文件，返回结构完整性和内容质量报告。"""
-    file_path = TEXTBOOK_DIR / req.filename
-    resolved = file_path.resolve()
-    if not str(resolved).startswith(str(TEXTBOOK_DIR.resolve())):
-        raise HTTPException(status_code=400, detail="非法文件路径")
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="教材文件不存在")
+    file_path = _resolve_textbook_path(req.filename)
 
     try:
         report = analyze_textbook(str(file_path))

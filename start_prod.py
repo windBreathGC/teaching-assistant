@@ -11,7 +11,9 @@ Usage:
 Environment variables:
     PYTHON_PATH    - Custom Python executable path
     BACKEND_PORT   - Backend port (default: 8000)
-    WORKERS        - Uvicorn worker count (default: 4)
+    WORKERS        - Uvicorn worker count (default: 1)
+                     WARNING: keep at 1. BM25 检索缓存、课文名映射、入库文件锁均为
+                     进程内状态，多 worker 会导致缓存失效丢失与并发写入损坏。
     LOG_DIR        - Log directory (default: ./logs)
 """
 
@@ -46,12 +48,19 @@ LOG_DIR = Path(os.environ.get("LOG_DIR", ROOT_DIR / "logs"))
 _load_env_file(ROOT_DIR / ".env")
 
 BACKEND_PORT = int(os.environ.get("BACKEND_PORT", "8000"))
-WORKERS = int(os.environ.get("WORKERS", "4"))
+WORKERS = int(os.environ.get("WORKERS", "1"))
 
 
 def find_python() -> str:
     if env_path := os.environ.get("PYTHON_PATH"):
         return env_path
+
+    # Prefer the uv-managed virtual environment (created by `uv sync` in backend/)
+    uv_venv = BACKEND_DIR / ".venv"
+    for candidate in (uv_venv / "Scripts" / "python.exe", uv_venv / "bin" / "python"):
+        if candidate.exists():
+            return str(candidate)
+
     conda_path = Path(r"C:\ProgramData\miniconda3\envs\learn\python.exe")
     if conda_path.exists():
         return str(conda_path)
@@ -110,6 +119,10 @@ def main() -> None:
     log("=" * 50)
     log("Production server starting...")
     log(f"Port: {BACKEND_PORT}, Workers: {WORKERS}")
+
+    if WORKERS > 1:
+        log("[WARN] WORKERS > 1：BM25 缓存失效、课文名映射、入库文件锁均为进程内状态，")
+        log("[WARN] 多 worker 会导致检索结果陈旧与 ingest_index.json 并发写损坏，请保持 WORKERS=1！")
 
     if not BACKEND_DIR.exists():
         log(f"[ERROR] Backend directory not found: {BACKEND_DIR}")

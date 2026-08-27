@@ -218,7 +218,7 @@ async def update_model(model_id: str, data: dict) -> dict | None:
         await session.commit()
         await session.refresh(model)
         logger.info("更新模型配置: %s", model_id)
-        return _model_to_raw_dict(model)
+        return model.to_dict(mask_api_key=True)
 
 
 async def delete_model(model_id: str) -> bool:

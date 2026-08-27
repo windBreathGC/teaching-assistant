@@ -75,6 +75,12 @@ def find_python() -> str:
     if env_path := os.environ.get("PYTHON_PATH"):
         return env_path
 
+    # Prefer the uv-managed virtual environment (created by `uv sync` in backend/)
+    uv_venv = BACKEND_DIR / ".venv"
+    for candidate in (uv_venv / "Scripts" / "python.exe", uv_venv / "bin" / "python"):
+        if candidate.exists():
+            return str(candidate)
+
     conda_path = Path(r"C:\ProgramData\miniconda3\envs\learn\python.exe")
     if conda_path.exists():
         return str(conda_path)

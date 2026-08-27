@@ -20,6 +20,10 @@ def get_llm():
             api_key=settings.OPENAI_API_KEY,
             base_url=settings.OPENAI_BASE_URL,
             temperature=0.5,
+            # Qwen3 等思考模型默认开启 thinking，思考阶段 content 为空会导致
+            # 流式响应长时间无输出；教学问答有 RAG 兜底，不需要深度推理，关闭之
+            # （该 provider 认顶层 enable_thinking 参数，不认 chat_template_kwargs）
+            extra_body={"enable_thinking": False},
         )
     return _llm
 
@@ -108,8 +112,21 @@ async def agenerate_reply(message: str, subject: str, chapter: str, lesson: str 
     }
 
 
+def _extract_text(chunk) -> str:
+    """从 AIMessageChunk 提取纯文本；兼容 content block 列表形式（部分 OpenAI 兼容平台）。"""
+    content = chunk.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""
+
+
 async def stream_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict]):
-    """流式生成教学回复，yield 每个 token"""
+    """流式生成教学回复，yield 每个 token（空 chunk 已过滤）"""
     context = _build_context(docs)
     chain = _reply_prompt | get_llm()
     async for chunk in chain.astream({
@@ -120,7 +137,10 @@ async def stream_reply(message: str, subject: str, chapter: str, lesson: str | N
         "context": context,
     }):
         # chain 末尾没有 StrOutputParser，astream  yield 的是 AIMessageChunk
-        yield chunk.content
+        # role/usage/finish_reason 等脚手架 chunk 的 content 为空，过滤掉避免产生空 SSE 事件
+        text = _extract_text(chunk)
+        if text:
+            yield text
 
 
 _quiz_prompt = ChatPromptTemplate.from_messages([
@@ -217,4 +237,7 @@ async def stream_quiz(subject: str, chapter: str, lesson: str | None, docs: list
         "question_type": question_type,
         "lesson": lesson or "指定课文",
     }):
-        yield chunk.content
+        # 同 stream_reply：过滤 content 为空的脚手架 chunk
+        text = _extract_text(chunk)
+        if text:
+            yield text

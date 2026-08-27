@@ -724,6 +724,12 @@ function formatTime(ts: string) {
   })
 }
 
+// 令牌录入成功后（App.vue 全局弹窗处理）刷新本页数据
+function onAdminTokenSaved() {
+  loadData()
+  modelStore.loadModels()
+}
+
 onMounted(() => {
   loadData()
   updateTableHeight()
@@ -731,6 +737,7 @@ onMounted(() => {
   if (tableAreaRef.value) {
     resizeObserver.observe(tableAreaRef.value)
   }
+  window.addEventListener('admin-token-saved', onAdminTokenSaved)
 })
 
 watch(activeTab, (tab) => {
@@ -752,6 +759,7 @@ watch(activeTab, (tab) => {
 
 onUnmounted(() => {
   resizeObserver?.disconnect()
+  window.removeEventListener('admin-token-saved', onAdminTokenSaved)
 })
 </script>
 

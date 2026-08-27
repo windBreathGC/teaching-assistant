@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""教材向量化入库脚本（支持增量更新）
+"""教材向量化入库脚本（chunk 级增量更新）
 
 用法:
     python backend/scripts/ingest_textbooks.py
@@ -7,12 +7,15 @@
 机制:
     1. 自动扫描 textbook/ 目录下的所有 .md 文件（排除 TEMPLATE.md）
     2. 通过文件名正则解析出版本、年份、年级、学期、学科
-    3. 维护 ingest_index.json 记录每个文件的 sha256 和 chunk 数量
-    4. 文件未变更时完全跳过；变更时先删旧 chunk 再重新入库
-    5. 磁盘上已删除的文件会自动从向量库中清理
+    3. 文件 sha256 未变更时完全跳过；变更时按 chunk 粒度 diff：
+       - chunk ID = {文件名}_h{内容哈希}，与切分顺序无关
+       - 内容未变的 chunk 复用旧向量，只 embedding 真正变更的 chunk
+       - 先 embedding 后写库（upsert 新增 -> delete 过期），失败时旧数据保留
+    4. 磁盘上已删除的文件会自动从向量库中清理
+    5. 任一文件处理失败不影响其他文件，脚本最终以非零退出码报告失败
+
+共享逻辑见 app/services/ingest_core.py（与管理后台 ingest 服务共用）。
 """
-import hashlib
-import json
 import logging
 import os
 import sys
@@ -30,6 +33,17 @@ load_dotenv(_env_path, override=True)
 os.environ["CHROMA_PERSIST_DIR"] = os.path.join(_script_dir, "..", "chroma_db")
 
 from app.core.config import get_settings
+from app.services.keyword_search import invalidate_cache as invalidate_bm25_cache
+from app.services.ingest_core import (
+    assign_chunk_ids,
+    compute_sha256,
+    diff_chunks,
+    embed_with_retry,
+    entry_chunk_ids,
+    load_index,
+    make_index_entry,
+    save_index,
+)
 from app.services.rag import get_collection
 from app.services.textbook_parser import generate_metadata, parse_filename
 from app.utils.text_splitter import load_and_split
@@ -51,41 +65,13 @@ DATA_DIR = os.path.join(BASE_DIR, "backend", "data")
 INDEX_PATH = os.path.join(DATA_DIR, "ingest_index.json")
 
 
-
 def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
-
-
-def _compute_sha256(file_path: str) -> str:
-    """计算文件 SHA256，用于检测内容是否变更。"""
-    h = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _load_index() -> dict:
-    if os.path.exists(INDEX_PATH):
-        with open(INDEX_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"version": 1, "files": {}}
-
-
-def _save_index(index: dict) -> None:
-    with open(INDEX_PATH, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, indent=2)
-
 
 
 def _file_stem(file_path: str) -> str:
     """提取文件名（不含扩展名），用于生成 chunk_id 前缀。"""
     return os.path.splitext(os.path.basename(file_path))[0]
-
-
-def _make_chunk_ids(stem: str, count: int) -> list[str]:
-    """生成可预测的 chunk_id 列表，格式: {stem}_chunk_{seq}。"""
-    return [f"{stem}_chunk_{i}" for i in range(count)]
 
 
 def main():
@@ -111,8 +97,12 @@ def main():
         model=settings.EMBEDDING_MODEL,
         api_key=settings.OPENAI_API_KEY,
         base_url=settings.OPENAI_BASE_URL,
+        # SiliconFlow 等 OpenAI 兼容接口不支持 token 数组输入和base64 编码格式（openai SDK 2.x 默认 encoding_format=base64，
+        # 会触发 400 / code 20015），按 langchain 官方建议关闭
+        check_embedding_ctx_length=False,
+        model_kwargs={"encoding_format": "float"},
     )
-    index = _load_index()
+    index = load_index(INDEX_PATH)
     METADATA_DIR = os.path.join(DATA_DIR, "generated")
     _ensure_dir(METADATA_DIR)
 
@@ -136,7 +126,11 @@ def main():
 
     # 2. 逐个处理
     current_files: set[str] = set()
-    total_new = 0
+    total_added = 0
+    total_reused = 0
+    total_deleted = 0
+    failed_files: list[str] = []
+    index_dirty = False
 
     for file_path in sorted(md_files):
         rel_path = os.path.relpath(file_path, BASE_DIR)
@@ -148,32 +142,13 @@ def main():
             logger.warning("文件名格式不匹配，跳过: %s", basename)
             continue
 
-        sha = _compute_sha256(file_path)
+        sha = compute_sha256(file_path)
         existing = index["files"].get(rel_path)
 
         if existing and existing.get("sha256") == sha:
             logger.info("未变更，跳过: %s", basename)
             continue
 
-        # 文件有变更，先生成/更新 metadata.json
-        try:
-            meta_path = generate_metadata(file_path, output_dir=METADATA_DIR)
-            logger.info("  已更新 metadata: %s", os.path.basename(meta_path))
-        except Exception as e:
-            logger.warning("  生成 metadata 失败: %s", e)
-
-        stem = _file_stem(file_path)
-
-        # 2a. 有旧数据则先删除
-        if existing:
-            old_ids = _make_chunk_ids(stem, existing["chunk_count"])
-            try:
-                collection.delete(ids=old_ids)
-                logger.info("  删除旧数据: %d chunks", len(old_ids))
-            except Exception as e:
-                logger.warning("  删除旧数据失败: %s", e)
-
-        # 2b. 解析新内容
         logger.info(
             "处理: %s (%s %s %s %s)...",
             basename,
@@ -182,6 +157,8 @@ def main():
             meta["grade"],
             meta["semester"],
         )
+
+        # 2a. 分块（在任何删除操作之前完成）
         chunks = load_and_split(
             file_path,
             subject=meta["subject"],
@@ -189,39 +166,69 @@ def main():
             grade=meta["grade"],
             semester=meta["semester"],
         )
-        logger.info("  分块数: %d", len(chunks))
-
         if not chunks:
             logger.warning("  无内容可分块，跳过入库")
             continue
 
-        # 2c. 生成 Embedding 并入库
-        texts = [c.content for c in chunks]
-        metas = [c.metadata for c in chunks]
-        ids = _make_chunk_ids(stem, len(chunks))
-        vectors = embeddings.embed_documents(texts)
-        collection.add(ids=ids, embeddings=vectors, documents=texts, metadatas=metas)
+        # 2b. 生成稳定 chunk ID，并与库中旧数据 diff
+        stem = _file_stem(file_path)
+        assigned = assign_chunk_ids(stem, chunks)
+        old_ids = entry_chunk_ids(existing, stem) if existing else []
+        to_add, to_delete = diff_chunks(assigned, old_ids)
+        reused = len(assigned) - len(to_add)
+        logger.info(
+            "  分块数: %d（复用 %d，新增/变更 %d，删除 %d）",
+            len(assigned), reused, len(to_add), len(to_delete),
+        )
 
-        # 2d. 更新索引
-        index["files"][rel_path] = {
-            "sha256": sha,
-            "chunk_count": len(chunks),
-            "metadata": meta,
-        }
-        total_new += len(chunks)
-        logger.info("  已入库: %d chunks", len(chunks))
+        # 2c. 先 embedding 变更的 chunk；失败则保留旧数据、跳过本文件
+        try:
+            vectors = embed_with_retry(embeddings, [c.content for _, _, c in to_add])
+        except Exception as e:
+            logger.error("  embedding 失败，旧数据已保留，跳过本文件: %s", e)
+            failed_files.append(basename)
+            continue
+
+        # 2d. 先 upsert 新 chunk，再删除过期 chunk（任何时刻库中都有完整数据）
+        try:
+            if to_add:
+                collection.upsert(
+                    ids=[cid for cid, _, _ in to_add],
+                    embeddings=vectors,
+                    documents=[c.content for _, _, c in to_add],
+                    metadatas=[c.metadata for _, _, c in to_add],
+                )
+            if to_delete:
+                collection.delete(ids=to_delete)
+        except Exception as e:
+            logger.error("  写入向量库失败，旧数据基本保留，跳过本文件: %s", e)
+            failed_files.append(basename)
+            continue
+
+        # 2e. 更新 metadata.json 与索引
+        try:
+            meta_path = generate_metadata(file_path, output_dir=METADATA_DIR)
+            logger.info("  已更新 metadata: %s", os.path.basename(meta_path))
+        except Exception as e:
+            logger.warning("  生成 metadata 失败: %s", e)
+
+        index["files"][rel_path] = make_index_entry(sha, meta, assigned)
+        index_dirty = True
+        total_added += len(to_add)
+        total_reused += reused
+        total_deleted += len(to_delete)
+        logger.info("  已入库: 新增/变更 %d chunks", len(to_add))
 
     # 3. 清理磁盘上已删除的文件
     removed = []
     for rel_path in list(index["files"].keys()):
         if rel_path not in current_files:
-            # 构造 chunk_ids（basename 可从 rel_path 解析）
             basename = os.path.basename(rel_path)
             stem = os.path.splitext(basename)[0]
-            old = index["files"][rel_path]
-            old_ids = _make_chunk_ids(stem, old["chunk_count"])
+            old_ids = entry_chunk_ids(index["files"][rel_path], stem)
             try:
-                collection.delete(ids=old_ids)
+                if old_ids:
+                    collection.delete(ids=old_ids)
                 removed.append(rel_path)
                 logger.info("清理已删除文件: %s (%d chunks)", rel_path, len(old_ids))
             except Exception as e:
@@ -231,15 +238,19 @@ def main():
         del index["files"][rp]
 
     # 4. 保存索引
-    if total_new > 0 or removed:
-        _save_index(index)
+    if index_dirty or removed:
+        save_index(INDEX_PATH, index)
+        # 向量库已变更，BM25 关键词索引缓存需重建
+        invalidate_bm25_cache()
         logger.info("索引已更新")
 
     logger.info(
-        "处理完成。新增/更新: %d chunks, 清理: %d 个文件",
-        total_new,
-        len(removed),
+        "处理完成。新增/变更: %d chunks, 复用: %d chunks, 删除: %d chunks, 清理文件: %d 个, 失败: %d 个",
+        total_added, total_reused, total_deleted, len(removed), len(failed_files),
     )
+    if failed_files:
+        logger.error("以下文件处理失败: %s", ", ".join(failed_files))
+        sys.exit(1)
 
 
 if __name__ == "__main__":

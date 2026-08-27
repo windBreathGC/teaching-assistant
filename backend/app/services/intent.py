@@ -30,6 +30,9 @@ def get_llm():
             api_key=settings.OPENAI_API_KEY,
             base_url=settings.OPENAI_BASE_URL,
             temperature=0.0,
+            # 关闭 Qwen3 等模型的 thinking，意图分类无需推理且要避免思考延迟
+            # （该 provider 认顶层 enable_thinking 参数，不认 chat_template_kwargs）
+            extra_body={"enable_thinking": False},
         )
     return _llm
 
@@ -45,21 +48,53 @@ _intent_prompt = ChatPromptTemplate.from_messages([
 ])
 
 
-def classify_intent(message: str) -> str:
-    """识别用户意图：先关键词匹配，再用LLM确认"""
-    msg = message.strip().lower()
-
-    # 关键词快速匹配
+def _match_keywords(msg: str) -> str | None:
+    """关键词快速匹配，命中则返回意图，否则返回 None。"""
     for intent, keywords in KEYWORD_RULES:
         for kw in keywords:
             if kw in msg:
                 logger.info("意图(关键词): %s -> %s", msg[:30], intent)
                 return intent
+    return None
+
+
+def classify_intent(message: str) -> str:
+    """识别用户意图：先关键词匹配，再用LLM确认（同步版本）"""
+    msg = message.strip().lower()
+
+    # 关键词快速匹配
+    matched = _match_keywords(msg)
+    if matched:
+        return matched
 
     # LLM兜底分类
     try:
         chain = _intent_prompt | get_llm() | StrOutputParser()
         result = chain.invoke({"message": message}).strip()
+        for intent in INTENT_TYPES:
+            if intent in result:
+                logger.info("意图(LLM): %s -> %s", msg[:30], intent)
+                return intent
+    except Exception as e:
+        logger.warning("LLM意图识别失败: %s, fallback到自由聊天", e)
+
+    return "自由聊天"
+
+
+async def aclassify_intent(message: str) -> str:
+    """识别用户意图（异步版本）：逻辑同 classify_intent，但 LLM 兜底走 ainvoke，
+    避免在 async 端点中阻塞事件循环。"""
+    msg = message.strip().lower()
+
+    # 关键词快速匹配
+    matched = _match_keywords(msg)
+    if matched:
+        return matched
+
+    # LLM兜底分类
+    try:
+        chain = _intent_prompt | get_llm() | StrOutputParser()
+        result = (await chain.ainvoke({"message": message})).strip()
         for intent in INTENT_TYPES:
             if intent in result:
                 logger.info("意图(LLM): %s -> %s", msg[:30], intent)

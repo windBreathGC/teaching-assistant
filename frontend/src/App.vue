@@ -49,11 +49,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { School, HomeFilled, ChatLineRound, Setting, Connection } from '@element-plus/icons-vue'
 import { useAppStore } from './stores/app'
 import { useModelStore } from './stores/modelStore'
+import { setAdminToken } from './api/client'
 import ModelManager from './components/ModelManager.vue'
 import TaskCenter from './components/TaskCenter.vue'
 
@@ -67,6 +69,37 @@ watch(() => route.path, (path) => {
     store.selectSubject(null)
   }
 })
+
+// 管理接口返回 401 时（后端配置了 ADMIN_TOKEN），全局提示录入令牌。
+// 录入成功后广播 admin-token-saved，各页面可自行刷新数据。
+let promptingToken = false
+async function onAdminTokenRequired() {
+  if (promptingToken) return
+  promptingToken = true
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '后端已启用管理接口鉴权，请输入管理令牌（对应 .env 中的 ADMIN_TOKEN）',
+      '需要管理令牌',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputType: 'password',
+        inputPlaceholder: 'ADMIN_TOKEN',
+        inputValidator: (v: string) => (v && v.trim().length > 0) || '令牌不能为空',
+      },
+    )
+    setAdminToken(value.trim())
+    ElMessage.success('令牌已保存')
+    window.dispatchEvent(new CustomEvent('admin-token-saved'))
+  } catch {
+    // 用户取消：保持未鉴权状态，后续请求仍会 401 并再次提示
+  } finally {
+    promptingToken = false
+  }
+}
+
+onMounted(() => window.addEventListener('admin-token-required', onAdminTokenRequired))
+onUnmounted(() => window.removeEventListener('admin-token-required', onAdminTokenRequired))
 </script>
 
 <style scoped>

@@ -1,12 +1,44 @@
 """教材文本分块器"""
 import re
 from dataclasses import dataclass
+from app.core.config import get_settings
 
+settings = get_settings()
 
 @dataclass
 class TextChunk:
     content: str
     metadata: dict
+
+
+def _split_long_text(text: str, max_chars: int = settings.MAX_CHUNK_CHARS) -> list[str]:
+    """按行将超长文本贪心切分为不超过 max_chars 的片段；单行仍超长则硬切。"""
+    if len(text) <= max_chars:
+        return [text]
+
+    parts: list[str] = []
+    buf = ""
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        while len(line) > max_chars:
+            if buf:
+                parts.append(buf)
+                buf = ""
+            parts.append(line[:max_chars])
+            line = line[max_chars:].strip()
+        if not line:
+            continue
+        candidate = f"{buf}\n{line}" if buf else line
+        if len(candidate) > max_chars:
+            parts.append(buf)
+            buf = line
+        else:
+            buf = candidate
+    if buf:
+        parts.append(buf)
+    return parts
 
 
 def split_by_headers(
@@ -61,7 +93,16 @@ def split_by_headers(
                     "content_type": "章节概览",
                 }
             ))
-    return chunks
+
+    # 对超长块做二次切分，避免超出 Embedding 模型的 token 上限
+    result: list[TextChunk] = []
+    for chunk in chunks:
+        if len(chunk.content) <= settings.MAX_CHUNK_CHARS:
+            result.append(chunk)
+        else:
+            for part in _split_long_text(chunk.content):
+                result.append(TextChunk(content=part, metadata=chunk.metadata))
+    return result
 
 
 def load_and_split(

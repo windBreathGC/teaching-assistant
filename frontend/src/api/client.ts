@@ -2,11 +2,49 @@ import axios from 'axios'
 
 declare const __API_BASE_URL__: string
 
+// ── 管理后台令牌（对应后端 X-Admin-Token 校验）──
+const ADMIN_TOKEN_KEY = 'admin_token'
+
+export function getAdminToken(): string {
+  return localStorage.getItem(ADMIN_TOKEN_KEY) || ''
+}
+
+export function setAdminToken(token: string): void {
+  localStorage.setItem(ADMIN_TOKEN_KEY, token)
+}
+
+export function clearAdminToken(): void {
+  localStorage.removeItem(ADMIN_TOKEN_KEY)
+}
+
 const api = axios.create({
   baseURL: __API_BASE_URL__,
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 })
+
+// 请求拦截：/admin/* 请求自动附带管理令牌
+api.interceptors.request.use((config) => {
+  if (config.url?.startsWith('/admin')) {
+    const token = getAdminToken()
+    if (token) {
+      config.headers['X-Admin-Token'] = token
+    }
+  }
+  return config
+})
+
+// 响应拦截：管理接口 401 时清除失效令牌并通知界面重新录入
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && error.config?.url?.startsWith('/admin')) {
+      clearAdminToken()
+      window.dispatchEvent(new CustomEvent('admin-token-required'))
+    }
+    return Promise.reject(error)
+  },
+)
 
 export interface Subject {
   id: string

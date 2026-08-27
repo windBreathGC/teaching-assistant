@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from app.models.schemas import ChatRequest, ChatResponse, QuizRequest, QuizResponse
 from app.services.agent import agent
-from app.services.intent import classify_intent
+from app.services.intent import aclassify_intent
 from app.services.rag import aretrieve, get_lesson_name
 from app.services.teaching import generate_quiz, parse_quiz_output, stream_quiz, stream_reply
 
@@ -51,8 +51,8 @@ async def chat_stream(request: ChatRequest):
     """对话接口（SSE 流式，token 级实时返回）"""
     async def event_generator():
         try:
-            # 1. 意图识别
-            intent = classify_intent(request.message)
+            # 1. 意图识别（异步，避免同步 LLM 调用阻塞事件循环）
+            intent = await aclassify_intent(request.message)
             yield f"data: {json.dumps({'type': 'intent', 'intent': intent})}\n\n"
 
             # 2. 检索教材内容（讲解/问答场景）

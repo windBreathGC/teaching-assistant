@@ -1,10 +1,14 @@
-"""教材向量化服务：支持单文件入库和进度回调。"""
-import hashlib
-import json
+"""教材向量化服务：支持单文件入库和进度回调。
+
+与 scripts/ingest_textbooks.py 共用 app/services/ingest_core.py 的
+chunk ID 规则、索引格式与增量 diff 逻辑，两条入库路径行为一致。
+"""
 import logging
 import os
 import sys
 from pathlib import Path
+
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +16,18 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.config import get_settings
+from app.services.ingest_core import (
+    assign_chunk_ids,
+    compute_sha256,
+    diff_chunks,
+    embed_with_retry,
+    entry_chunk_count,
+    entry_chunk_ids,
+    load_index,
+    make_index_entry,
+    save_index,
+)
+from app.services.keyword_search import invalidate_cache as invalidate_bm25_cache
 from app.services.rag import get_collection
 from app.utils.text_splitter import load_and_split
 from langchain_openai import OpenAIEmbeddings
@@ -24,37 +40,8 @@ DATA_DIR = BASE_DIR / "backend" / "data"
 INDEX_PATH = DATA_DIR / "ingest_index.json"
 
 
-def _ensure_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def _compute_sha256(file_path: str) -> str:
-    h = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _load_index() -> dict:
-    if INDEX_PATH.exists():
-        with open(INDEX_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"version": 1, "files": {}}
-
-
-def _save_index(index: dict) -> None:
-    _ensure_dir(DATA_DIR)
-    with open(INDEX_PATH, "w", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, indent=2)
-
-
 def _file_stem(file_path: str) -> str:
     return Path(file_path).stem
-
-
-def _make_chunk_ids(stem: str, count: int) -> list[str]:
-    return [f"{stem}_chunk_{i}" for i in range(count)]
 
 
 def _parse_filename(filename: str) -> dict | None:
@@ -63,12 +50,23 @@ def _parse_filename(filename: str) -> dict | None:
     return _parser(filename)
 
 
+def _make_embeddings() -> OpenAIEmbeddings:
+    return OpenAIEmbeddings(
+        model=settings.EMBEDDING_MODEL,
+        api_key=settings.OPENAI_API_KEY,
+        base_url=settings.OPENAI_BASE_URL,
+        # SiliconFlow 等 OpenAI 兼容接口不支持 token 数组输入和base64 编码格式
+        check_embedding_ctx_length=False,
+        model_kwargs={"encoding_format": "float"},
+    )
+
+
 def ingest_single_file(
     file_path: str,
     task_id: str | None = None,
-    progress_callback=None,
+    progress_callback: Callable | None =None,
 ) -> dict:
-    """对单个教材文件执行解析、分块、Embedding、入库全流程。
+    """对单个教材文件执行解析、分块、Embedding、入库全流程（chunk 级增量）。
 
     Args:
         file_path: Markdown文件绝对路径
@@ -101,37 +99,26 @@ def ingest_single_file(
         return {"status": "error", "chunks": 0, "message": f"文件名格式不匹配: {basename}"}
 
     _report(5, "计算文件哈希")
-    sha = _compute_sha256(file_path)
-    index = _load_index()
+    sha = compute_sha256(file_path)
+    index = load_index(INDEX_PATH)
     existing = index["files"].get(rel_path)
+    stem = _file_stem(file_path)
 
+    # sha 未变且向量库数据完整 -> 跳过；sha 未变但库数据缺失 -> 强制全量修复
+    force_full = False
     if existing and existing.get("sha256") == sha:
-        stem = _file_stem(file_path)
-        chunk_count = existing.get("chunk_count", 0)
-        if _verify_chromadb_data(stem, chunk_count):
+        # 如果向量化的文件已经存在，需要收集已存在的chunk id，同时抽取前3个判断向量库是否已经存在
+        old_ids = entry_chunk_ids(existing, stem)
+        if _verify_chromadb_data(old_ids):
             _report(100, "文件未变更，跳过")
-            return {"status": "skipped", "chunks": chunk_count, "message": "文件未变更"}
-        _report(5, "索引存在但向量库数据缺失，重新入库")
-    else:
-        stem = _file_stem(file_path)
+            return {"status": "skipped", "chunks": len(old_ids), "message": "文件未变更"}
+        force_full = True
+        _report(5, "索引存在但向量库数据缺失，执行全量修复")
 
     collection = get_collection()
-    embeddings = OpenAIEmbeddings(
-        model=settings.EMBEDDING_MODEL,
-        api_key=settings.OPENAI_API_KEY,
-        base_url=settings.OPENAI_BASE_URL,
-    )
+    embeddings = _make_embeddings()
 
-    # 删除旧数据
-    if existing:
-        old_ids = _make_chunk_ids(stem, existing["chunk_count"])
-        try:
-            collection.delete(ids=old_ids)
-            _report(10, f"已删除旧数据: {len(old_ids)} chunks")
-        except Exception as e:
-            logger.warning("删除旧数据失败: %s", e)
-
-    # 分块
+    # 分块（在任何删除操作之前完成）
     _report(15, "正在分块...")
     chunks = load_and_split(
         file_path,
@@ -145,46 +132,68 @@ def ingest_single_file(
     if not chunks:
         return {"status": "error", "chunks": 0, "message": "无内容可分块"}
 
-    # 生成 Embedding
-    _report(35, "正在生成 Embedding...")
-    texts = [c.content for c in chunks]
-    metas = [c.metadata for c in chunks]
-    ids = _make_chunk_ids(stem, len(chunks))
+    # 生成稳定 chunk ID，与库中旧数据 diff
+    assigned = assign_chunk_ids(stem, chunks)
+    old_ids = entry_chunk_ids(existing, stem) if existing else []
+    # 逐块比对，基于块的维度刷新向量库，而不是基于整份文档全部刷新，减少开销和提升效率
+    to_add, to_delete = diff_chunks(assigned, old_ids, force_full=force_full)
+    reused = len(assigned) - len(to_add)
+    _report(32, f"增量对比: 复用 {reused}，新增/变更 {len(to_add)}，删除 {len(to_delete)}")
 
+    # 先 embedding 变更的 chunk；失败则旧数据原样保留
+    _report(35, "正在生成 Embedding...")
     try:
-        vectors = embeddings.embed_documents(texts)
+        vectors = embed_with_retry(
+            embeddings,
+            [c.content for _, _, c in to_add],
+            progress=lambda done, total: _report(
+                35 + 40 * done // max(total, 1), f"Embedding 进度: {done}/{total}"
+            ),
+        )
     except Exception as e:
-        return {"status": "error", "chunks": 0, "message": f"Embedding 失败: {e}"}
+        return {"status": "error", "chunks": 0, "message": f"Embedding 失败（旧数据已保留）: {e}"}
 
     _report(80, "Embedding 完成，正在入库...")
 
     # 入库
     try:
-        collection.add(ids=ids, embeddings=vectors, documents=texts, metadatas=metas)
+        # 先 upsert 新 chunk，再删除过期 chunk，防止先删除导致同步查询时获取空内容
+        if to_add:
+            collection.upsert(
+                ids=[cid for cid, _, _ in to_add],
+                embeddings=vectors,
+                documents=[c.content for _, _, c in to_add],
+                metadatas=[c.metadata for _, _, c in to_add],
+            )
+        if to_delete:
+            collection.delete(ids=to_delete)
+            _report(90, f"已清理过期数据: {len(to_delete)} chunks")
     except Exception as e:
         return {"status": "error", "chunks": 0, "message": f"入库失败: {e}"}
 
+    # 向量库已变更，BM25 关键词索引缓存需重建
+    if to_add or to_delete:
+        invalidate_bm25_cache()
+
     # 更新索引
-    index["files"][rel_path] = {
-        "sha256": sha,
-        "chunk_count": len(chunks),
-        "metadata": meta,
+    index["files"][rel_path] = make_index_entry(sha, meta, assigned)
+    save_index(INDEX_PATH, index)
+
+    _report(100, f"完成: 新增/变更 {len(to_add)}，复用 {reused} chunks")
+    return {
+        "status": "success",
+        "chunks": len(assigned),
+        "message": f"已入库 {len(assigned)} chunks（新增/变更 {len(to_add)}，复用 {reused}）",
     }
-    _save_index(index)
-
-    _report(100, f"完成: {len(chunks)} chunks 已入库")
-    return {"status": "success", "chunks": len(chunks), "message": f"已入库 {len(chunks)} chunks"}
 
 
-def _verify_chromadb_data(stem: str, chunk_count: int) -> bool:
-    """验证 ChromaDB collection 中是否确实存在对应的数据。"""
-    if chunk_count <= 0:
+def _verify_chromadb_data(chunk_ids: list[str]) -> bool:
+    """验证 ChromaDB collection 中是否确实存在对应的数据（抽样前 3 个 chunk id）。"""
+    if not chunk_ids:
         return False
     try:
         collection = get_collection()
-        # 抽样检查前 3 个 chunk id，避免全量查询
-        sample_ids = [f"{stem}_chunk_{i}" for i in range(min(3, chunk_count))]
-        result = collection.get(ids=sample_ids)
+        result = collection.get(ids=chunk_ids[:3])
         docs = result.get("documents") or []
         return any(d is not None and d != "" for d in docs)
     except Exception:
@@ -210,18 +219,19 @@ def get_ingest_status(filename: str) -> dict:
         parsed = generated_path.exists()
 
     # 检查是否已向量化
-    index = _load_index()
+    index = load_index(INDEX_PATH)
     rel_path = os.path.relpath(str(path), BASE_DIR)
     in_index = rel_path in index["files"]
     sha_match = False
     chunks_in_db = False
     chunk_count = 0
     if in_index:
-        current_sha = _compute_sha256(str(path))
-        sha_match = index["files"][rel_path].get("sha256") == current_sha
-        chunk_count = index["files"][rel_path].get("chunk_count", 0)
+        entry = index["files"][rel_path]
+        current_sha = compute_sha256(str(path))
+        sha_match = entry.get("sha256") == current_sha
+        chunk_count = entry_chunk_count(entry)
         stem = _file_stem(str(path))
-        chunks_in_db = _verify_chromadb_data(stem, chunk_count)
+        chunks_in_db = _verify_chromadb_data(entry_chunk_ids(entry, stem))
 
     ingested = in_index and sha_match and chunks_in_db
     outdated = in_index and (not sha_match or not chunks_in_db)

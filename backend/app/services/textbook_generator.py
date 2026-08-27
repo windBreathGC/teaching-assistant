@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -224,7 +224,7 @@ def generate_textbook(
     outline: dict,
     meta: dict,
     model_config: dict,
-    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> Path:
     """基于大纲生成完整教材Markdown文件。
 
