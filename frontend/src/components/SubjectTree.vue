@@ -131,9 +131,13 @@ async function loadChapters(subjectId: string) {
 
 watch(
   () => route.params.subject,
-  (val) => {
+  async (val) => {
     const subjectId = val as string
     if (!subjectId) return
+    // 深链接直达 /chat/:subject 时学科列表尚未加载（HomeView 未挂载），先按需拉取
+    if (!store.subjectMap[subjectId]) {
+      await store.ensureSubjects()
+    }
     const s = store.subjectMap[subjectId]
     if (s) {
       store.selectSubject(s)

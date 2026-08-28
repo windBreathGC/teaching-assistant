@@ -209,7 +209,7 @@ BM25 路（同一批 key 继续累加）：
 
 ## LangGraph 工作流
 
-`POST /chat` 走 LangGraph 编排的智能体工作流（`app/services/agent.py`）：意图识别后按条件路由到不同分支，状态（`AgentState`）在节点间流转，携带消息历史、学科/课文上下文与检索结果。
+`POST /chat` 与 `POST /chat/stream` 共用同一个 LangGraph 编排的智能体工作流（`app/services/agent.py`）：意图识别后按条件路由到不同分支，状态（`AgentState`）在节点间流转，携带消息历史、学科/课文上下文与检索结果。
 
 ```
                 ┌──────────┐
@@ -242,7 +242,16 @@ BM25 路（同一批 key 继续累加）：
 | `quiz` | 意图为测验请求：基于检索结果生成选择题（非流式） |
 | `chat` | 其他意图：返回引导性欢迎语，不调用 LLM |
 
-> 流式接口 `POST /chat/stream` 不走该图：token 级真流式需要图外的生成调用（图的 `reply_node` 为非流式 `agenerate_reply`），且流式路径已退化为"意图识别 →（可选）检索 → 流式生成"的直线，无分支编排需求，直接平铺调用即可。
+**流式接口如何复用该图**：`POST /chat/stream` 通过 `agent.astream_events(version="v2")` 消费同一个工作流，把图内事件映射为 SSE 事件：
+
+| 图事件（astream_events） | SSE 事件 | 说明 |
+|------|------|------|
+| `intent` 节点 `on_chain_end` | `intent` | 意图识别结果 |
+| `reply` 节点内 LLM 的 `on_chat_model_stream` | `token` | 真流式的关键：`reply_node` 内部用 `chain.astream` 逐 token 聚合（`teaching.agenerate_reply`），token 事件才能冒泡出图 |
+| `quiz` / `chat` 节点 `on_chain_end` | `token`（一次性全文） | 这两个分支无 LLM 流，节点完成后整体下发 |
+| 终态节点 `on_chain_end` | `done` | `reply`/`suggested_actions` 取节点输出的权威结果，而非前端拼接 |
+
+注意：节点内子链（prompt\|llm 等）会继承 `langgraph_node` 元数据，过滤节点级事件时必须同时匹配 `event == "on_chain_end"` 且 `name == langgraph_node`，否则会把子链输出误判为节点结果。
 
 ## 向量化增量更新机制
 

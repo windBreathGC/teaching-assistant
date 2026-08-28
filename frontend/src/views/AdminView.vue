@@ -53,7 +53,7 @@
           <el-table-column prop="filename" label="文件名" min-width="280" show-overflow-tooltip/>
           <el-table-column label="学科" width="90" align="center">
             <template #default="{ row }">
-              <span class="subject-pill" :class="subjectClass(row.subject)"">{{ row.subject }}</span>
+              <span class="subject-pill" :class="subjectClass(row.subject)">{{ row.subject }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="grade" label="年级" width="100" />

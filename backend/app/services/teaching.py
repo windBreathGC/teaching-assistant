@@ -95,19 +95,27 @@ def generate_reply(message: str, subject: str, chapter: str, lesson: str | None,
 
 
 async def agenerate_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict]) -> dict:
-    """基于检索结果生成教学回复（异步版本）"""
+    """基于检索结果生成教学回复（异步版本）。
+
+    内部采用 astream 逐 token 生成并聚合：返回值与一次性调用无异，
+    但当外层通过 LangGraph astream_events 消费时，LLM 的 token 事件
+    （on_chat_model_stream）能冒泡出去，支撑真流式接口。"""
     context = _build_context(docs)
-    chain = _reply_prompt | get_llm() | StrOutputParser()
-    reply = await chain.ainvoke({
+    chain = _reply_prompt | get_llm()
+    parts: list[str] = []
+    async for chunk in chain.astream({
         "message": message,
         "subject": subject or "未知学科",
         "chapter": chapter or "未知章节",
         "lesson": lesson or "未指定课文",
         "context": context,
-    })
+    }):
+        text = _extract_text(chunk)
+        if text:
+            parts.append(text)
 
     return {
-        "reply": reply.strip(),
+        "reply": "".join(parts).strip(),
         "suggested_actions": _build_suggested_actions(message),
     }
 

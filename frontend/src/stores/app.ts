@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Subject, Chapter, Lesson } from '../api/client'
+import { subjectApi } from '../api/client'
 
 export const useAppStore = defineStore('app', () => {
   const subjects = ref<Subject[]>([])
@@ -55,6 +56,28 @@ export const useAppStore = defineStore('app', () => {
     subjects.value = list
   }
 
+  // 学科列表按需加载（深链接直达 /chat/:subject 时 HomeView 不会挂载，
+  // 需要由使用方自行确保数据就绪）。并发调用共享同一个 Promise，避免重复请求。
+  let subjectsPromise: Promise<void> | null = null
+
+  function ensureSubjects(): Promise<void> {
+    if (subjects.value.length) return Promise.resolve()
+    if (!subjectsPromise) {
+      subjectsPromise = subjectApi
+        .list()
+        .then(({ data }) => {
+          subjects.value = data
+        })
+        .catch((e) => {
+          console.error('加载学科列表失败', e)
+        })
+        .finally(() => {
+          subjectsPromise = null
+        })
+    }
+    return subjectsPromise
+  }
+
   function setChapters(subjectId: string, list: Chapter[]) {
     chapters.value[subjectId] = list
   }
@@ -93,6 +116,7 @@ export const useAppStore = defineStore('app', () => {
     isMobile,
     subjectMap,
     setSubjects,
+    ensureSubjects,
     setChapters,
     setLessons,
     selectSubject,

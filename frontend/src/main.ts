@@ -7,7 +7,7 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import './styles/global.css'
 import router from './router'
 import App from './App.vue'
-
+// 创建根组件
 const app = createApp(App)
 
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
@@ -17,4 +17,5 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
+// 挂载根组件，对应index.html的“<div id="app"></div>”
 app.mount('#app')

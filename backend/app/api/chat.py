@@ -6,9 +6,8 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from app.models.schemas import ChatRequest, ChatResponse, QuizRequest, QuizResponse
 from app.services.agent import agent
-from app.services.intent import aclassify_intent
 from app.services.rag import aretrieve, get_lesson_name
-from app.services.teaching import generate_quiz, parse_quiz_output, stream_quiz, stream_reply
+from app.services.teaching import _extract_text, generate_quiz, parse_quiz_output, stream_quiz
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -48,40 +47,66 @@ async def chat(request: ChatRequest):
 
 @router.post("/stream")
 async def chat_stream(request: ChatRequest):
-    """对话接口（SSE 流式，token 级实时返回）"""
+    """对话接口（SSE 流式，token 级实时返回）。
+
+    与 POST /chat 共用同一个 LangGraph 工作流：通过 astream_events 把图内
+    reply 节点的 LLM token 事件（on_chat_model_stream）实时转发为 SSE；
+    quiz/chat 分支无 LLM 流，节点完成后一次性下发其文本。"""
     async def event_generator():
         try:
-            # 1. 意图识别（异步，避免同步 LLM 调用阻塞事件循环）
-            intent = await aclassify_intent(request.message)
-            yield f"data: {json.dumps({'type': 'intent', 'intent': intent})}\n\n"
+            messages = []
+            for m in request.history or []:
+                if m.get("role") == "user":
+                    messages.append(HumanMessage(content=m["content"]))
+            messages.append(HumanMessage(content=request.message))
 
-            # 2. 检索教材内容（讲解/问答场景）
-            docs = []
-            if intent in ("知识问答", "课程讲解"):
-                lesson_name = get_lesson_name(request.lesson)
-                query = f"{lesson_name} {request.message}" if lesson_name else request.message
-                docs = await aretrieve(query=query, subject=request.subject, lesson=request.lesson, top_k=2)
+            initial_state = {
+                "messages": messages,
+                "subject": request.subject,
+                "chapter": request.chapter,
+                "lesson": request.lesson,
+                "intent": "自由聊天",
+                "retrieved_docs": [],
+                "reply": "",
+                "suggested_actions": [],
+                "quiz_result": None,
+            }
 
-            # 3. 流式生成回复（逐 token yield）
-            full_reply = ""
-            async for token in stream_reply(
-                message=request.message,
-                subject=request.subject or "未知学科",
-                chapter=request.chapter or "未知章节",
-                lesson=get_lesson_name(request.lesson),
-                docs=docs,
-            ):
-                full_reply += token
-                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            final_reply = ""
+            suggested_actions: list[str] = []
 
-            # 4. 建议操作
-            suggested_actions = []
-            if "例题" not in request.message and "题" not in request.message:
-                suggested_actions.append("出道例题")
-            if "总结" not in request.message:
-                suggested_actions.append("总结重点")
+            async for ev in agent.astream_events(initial_state, version="v2"):
+                kind = ev["event"]
+                name = ev.get("name", "")
+                # 节点内子链（prompt|llm 等）会继承 langgraph_node 元数据，
+                # 必须以事件名精确匹配节点本身，避免把子链输出当成节点结果
+                node = ev.get("metadata", {}).get("langgraph_node", "")
+                is_node_end = kind == "on_chain_end" and name == node
 
-            yield f"data: {json.dumps({'type': 'done', 'reply': full_reply, 'suggested_actions': suggested_actions[:3]})}\n\n"
+                # 意图识别完成 → 下发 intent 事件
+                if is_node_end and node == "intent":
+                    intent = (ev["data"].get("output") or {}).get("intent", "自由聊天")
+                    yield f"data: {json.dumps({'type': 'intent', 'intent': intent})}\n\n"
+
+                # reply 节点内 LLM 的逐 token 事件 → 实时转发
+                elif kind == "on_chat_model_stream" and node == "reply":
+                    text = _extract_text(ev["data"]["chunk"])
+                    if text:
+                        yield f"data: {json.dumps({'type': 'token', 'content': text})}\n\n"
+
+                # quiz/chat 分支没有 LLM 流，节点完成后一次性下发文本
+                elif is_node_end and node in ("quiz", "chat"):
+                    text = (ev["data"].get("output") or {}).get("reply", "")
+                    if text:
+                        yield f"data: {json.dumps({'type': 'token', 'content': text})}\n\n"
+
+                # 终态节点完成 → 记录权威结果，done 事件以此为准（而非本地拼接）
+                if is_node_end and node in ("reply", "quiz", "chat"):
+                    output = ev["data"].get("output") or {}
+                    final_reply = output.get("reply", final_reply)
+                    suggested_actions = output.get("suggested_actions", suggested_actions)
+
+            yield f"data: {json.dumps({'type': 'done', 'reply': final_reply, 'suggested_actions': suggested_actions[:3]})}\n\n"
 
         except Exception as e:
             logger.error("流式对话失败: %s", e, exc_info=True)

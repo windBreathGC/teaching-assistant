@@ -23,6 +23,7 @@ _embeddings = None
 
 
 def get_chroma_client():
+    """采用本地向量数据库的方式"""
     global _chroma_client
     if _chroma_client is None:
         _chroma_client = chromadb.PersistentClient(
@@ -47,9 +48,11 @@ def get_embeddings():
 
 
 def get_collection(name: str = "textbooks") -> Collection:
+    """获取向量集合，默认名称为textbooks，必须要唯一"""
     global _collection
     if _collection is None:
         client = get_chroma_client()
+        # metadata不指定的情况下，默认{"hnsw:space": "l2"}，可选 l2（欧几里得距离）、cosine（余弦相似度）、ip（内积）
         _collection = client.get_or_create_collection(name=name)
     return _collection
 
