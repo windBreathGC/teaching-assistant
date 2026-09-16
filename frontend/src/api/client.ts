@@ -17,6 +17,21 @@ export function clearAdminToken(): void {
   localStorage.removeItem(ADMIN_TOKEN_KEY)
 }
 
+// ── 对话会话ID（对应后端 checkpointer 的 thread_id，支撑多轮记忆）──
+const SESSION_ID_KEY = 'chat_session_id'
+
+export function getSessionId(): string {
+  return localStorage.getItem(SESSION_ID_KEY) || ''
+}
+
+export function setSessionId(id: string): void {
+  if (id) localStorage.setItem(SESSION_ID_KEY, id)
+}
+
+export function clearSessionId(): void {
+  localStorage.removeItem(SESSION_ID_KEY)
+}
+
 const api = axios.create({
   baseURL: __API_BASE_URL__,
   timeout: 30000,
@@ -80,13 +95,24 @@ export interface ChatReq {
   subject?: string
   chapter?: string
   lesson?: string
-  history?: Array<{role: string; content: string}>
+  session_id?: string
+}
+
+export interface Reference {
+  lesson?: string
+  chapter?: string
+  subject?: string
+  grade?: string
+  semester?: string
+  snippet?: string
+  score?: number
 }
 
 export interface ChatResp {
   reply: string
   intent?: string
-  references?: Array<Record<string, unknown>>
+  session_id?: string
+  references?: Reference[]
   suggested_actions?: string[]
 }
 
@@ -104,6 +130,43 @@ export interface QuizResp {
   correct_answer: string
   explanation: string
   knowledge_point: string
+  quiz_id?: string | null
+}
+
+export interface Mastery {
+  knowledge_point: string
+  mastery: number
+  total_attempts: number
+  correct_attempts: number
+}
+
+export interface QuizGradeResp {
+  quiz_id: string
+  is_correct: boolean
+  correct_answer: string
+  explanation: string
+  diagnosis: string
+  misconception: string | null
+  knowledge_point: string
+  mastery?: Mastery | null
+}
+
+// 流式对话的回调集合：token 增量 / done 权威结果 / error / references 教材出处
+export interface ChatStreamHandlers {
+  onToken: (token: string) => void
+  onDone: (payload: { reply: string; actions: string[]; references: Reference[]; sessionId: string }) => void
+  onError: (err: string) => void
+  onReferences?: (references: Reference[]) => void
+}
+
+// 流式出题的 done 载荷
+export interface QuizStreamDone {
+  question: string
+  options: string[] | null
+  correct_answer: string
+  explanation: string
+  knowledge_point: string
+  quiz_id: string | null
 }
 
 export const healthApi = {
@@ -120,12 +183,8 @@ export const subjectApi = {
 export const chatApi = {
   send: (data: ChatReq) => api.post<ChatResp>('/chat', data),
 
-  sendStream: (
-    data: ChatReq,
-    onToken: (token: string) => void,
-    onDone: (reply: string, actions: string[]) => void,
-    onError: (err: string) => void,
-  ) => {
+  sendStream: (data: ChatReq, handlers: ChatStreamHandlers) => {
+    const { onToken, onDone, onError, onReferences } = handlers
     return fetch(`${api.defaults.baseURL}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -135,25 +194,38 @@ export const chatApi = {
         const text = await response.text()
         throw new Error(text)
       }
+      // body是一个ReadableStream（可分块持续读取的流）对象
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
 
       while (reader) {
+        // 通过read()方法持续读取流数据
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
+        // 按照SSE协议要求，每个chunk的结尾必须是\n\n，所以可以采用\n进行分块
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
 
         for (const line of lines) {
+          // 按照SSE协议要求，每个chunk的开头必须是 data:，所以可以采用startsWith判断
           if (line.startsWith('data: ')) {
+            // 去掉头部的 data: 部分内容，正好6个字符；再解析为JSON体
             const payload = JSON.parse(line.slice(6))
+            // 根据后端封装的内容结构分发：token增量 / done权威结果 / references教材出处 / error
             if (payload.type === 'token') {
               onToken(payload.content)
+            } else if (payload.type === 'references') {
+              onReferences?.(payload.references || [])
             } else if (payload.type === 'done') {
-              onDone(payload.reply, payload.suggested_actions)
+              onDone({
+                reply: payload.reply,
+                actions: payload.suggested_actions || [],
+                references: payload.references || [],
+                sessionId: payload.session_id || '',
+              })
             } else if (payload.type === 'error') {
               onError(payload.detail)
             }
@@ -263,10 +335,14 @@ export const adminApi = {
 export const quizApi = {
   generate: (data: QuizReq) => api.post<QuizResp>('/chat/quiz', data),
 
+  // 提交答案判分：后端判分 + 错因诊断 + 掌握度更新（幂等）
+  submit: (quizId: string, userAnswer: string) =>
+    api.post<QuizGradeResp>('/chat/quiz/submit', { quiz_id: quizId, user_answer: userAnswer }),
+
   generateStream: (
     data: QuizReq,
     onToken: (token: string) => void,
-    onDone: (question: string, options: string[] | null, correctAnswer: string, explanation: string, knowledgePoint: string) => void,
+    onDone: (result: QuizStreamDone) => void,
     onError: (err: string) => void,
   ) => {
     return fetch(`${api.defaults.baseURL}/chat/quiz/stream`, {
@@ -296,7 +372,14 @@ export const quizApi = {
             if (payload.type === 'token') {
               onToken(payload.content)
             } else if (payload.type === 'done') {
-              onDone(payload.question, payload.options, payload.correct_answer, payload.explanation, payload.knowledge_point)
+              onDone({
+                question: payload.question,
+                options: payload.options,
+                correct_answer: payload.correct_answer,
+                explanation: payload.explanation,
+                knowledge_point: payload.knowledge_point,
+                quiz_id: payload.quiz_id || null,
+              })
             } else if (payload.type === 'error') {
               onError(payload.detail)
             }

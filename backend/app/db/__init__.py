@@ -1,7 +1,7 @@
 """Database package."""
 
 from app.db.base import engine, AsyncSessionLocal, init_db, close_db, Base
-from app.db.models import Task, ModelConfig
+from app.db.models import Task, ModelConfig, QuizAttempt, KnowledgeMastery
 __all__ = [
     "engine",
     "AsyncSessionLocal",
@@ -10,4 +10,6 @@ __all__ = [
     "Base",
     "Task",
     "ModelConfig",
+    "QuizAttempt",
+    "KnowledgeMastery",
 ]

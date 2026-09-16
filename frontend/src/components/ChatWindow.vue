@@ -42,6 +42,14 @@
             <MarkdownRenderer v-if="msg.role === 'assistant'" :source="msg.content" />
             <div v-else class="plain-text">{{ msg.content }}</div>
           </div>
+          <div v-if="msg.references?.length" class="references">
+            <div class="references-title">📚 教材出处</div>
+            <div v-for="(ref, i) in msg.references" :key="i" class="reference-item">
+              <span class="reference-lesson">{{ ref.lesson }}</span>
+              <span v-if="ref.chapter" class="reference-meta">{{ ref.chapter }}</span>
+              <span v-if="ref.grade" class="reference-meta">{{ ref.grade }}{{ ref.semester || '' }}</span>
+            </div>
+          </div>
           <div v-if="msg.suggested_actions?.length" class="actions">
             <button
               v-for="act in msg.suggested_actions"
@@ -114,10 +122,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, computed } from 'vue'
+import { ref, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
-import { chatApi, subjectApi } from '../api/client'
+import { chatApi, subjectApi, getSessionId, setSessionId, clearSessionId } from '../api/client'
+import type { Reference } from '../api/client'
 import { ChatDotRound, InfoFilled, Reading, EditPen, Memo, DocumentChecked, Document, ArrowLeft, Menu } from '@element-plus/icons-vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 
@@ -126,6 +135,12 @@ const store = useAppStore()
 const currentSubject = computed(() => store.currentSubject)
 const currentChapter = computed(() => store.currentChapter)
 const currentLesson = computed(() => store.currentLesson)
+
+// 切换课程即开启新会话：checkpointer 按 session_id 续接记忆，
+// 不复位会把上一门课的对话历史带进新课程（跨课串味）
+watch(() => currentSubject.value?.id, (newId, oldId) => {
+  if (newId !== oldId) clearSessionId()
+})
 
 function onMenuClick() {
   if (store.isMobile) {
@@ -153,6 +168,7 @@ const messages = ref<Array<{
   role: string
   content: string
   suggested_actions?: string[]
+  references?: Reference[]
 }>>([
   {
     role: 'assistant',
@@ -177,6 +193,8 @@ async function sendMessage(text: string) {
   await scrollBottom()
 
   let assistantIdx = -1
+  // references 事件先于首个 token 到达（气泡尚未创建），先暂存，气泡创建时挂上
+  let pendingReferences: Reference[] = []
 
   try {
     await chatApi.sendStream(
@@ -185,34 +203,50 @@ async function sendMessage(text: string) {
         subject: currentSubject.value?.id,
         chapter: currentChapter.value?.id,
         lesson: currentLesson.value?.id,
+        session_id: getSessionId() || undefined,
       },
-      (token: string) => {
-        if (assistantIdx === -1) {
-          messages.value.push({ role: 'assistant', content: token, suggested_actions: [] })
-          assistantIdx = messages.value.length - 1
+      {
+        onToken: (token: string) => {
+          if (assistantIdx === -1) {
+            messages.value.push({ role: 'assistant', content: token, suggested_actions: [], references: pendingReferences })
+            assistantIdx = messages.value.length - 1
+            loading.value = false
+          } else {
+            messages.value[assistantIdx].content += token
+          }
+          scrollBottom()
+        },
+        onReferences: (references: Reference[]) => {
+          pendingReferences = references
+          if (assistantIdx !== -1) {
+            messages.value[assistantIdx].references = references
+          }
+        },
+        onDone: ({ reply, actions, references, sessionId }) => {
+          if (sessionId) setSessionId(sessionId)
+          // 兜底：全程未收到 token（如模型不产生流式事件）但 done 携带完整答复时，补建气泡
+          if (assistantIdx === -1 && reply) {
+            messages.value.push({ role: 'assistant', content: reply, suggested_actions: actions, references: references?.length ? references : pendingReferences })
+          } else if (assistantIdx !== -1) {
+            messages.value[assistantIdx].content = reply
+            messages.value[assistantIdx].suggested_actions = actions
+            if (references?.length) {
+              messages.value[assistantIdx].references = references
+            }
+          }
           loading.value = false
-        } else {
-          messages.value[assistantIdx].content += token
-        }
-        scrollBottom()
+          scrollBottom()
+        },
+        onError: (_err: string) => {
+          if (assistantIdx !== -1) {
+            messages.value[assistantIdx].content = '抱歉，服务器暂时响应不过来，请稍后再试。'
+          } else {
+            messages.value.push({ role: 'assistant', content: '抱歉，服务器暂时响应不过来，请稍后再试。' })
+          }
+          loading.value = false
+          scrollBottom()
+        },
       },
-      (reply: string, actions: string[]) => {
-        if (assistantIdx !== -1) {
-          messages.value[assistantIdx].content = reply
-          messages.value[assistantIdx].suggested_actions = actions
-        }
-        loading.value = false
-        scrollBottom()
-      },
-      (err: string) => {
-        if (assistantIdx !== -1) {
-          messages.value[assistantIdx].content = '抱歉，服务器暂时响应不过来，请稍后再试。'
-        } else {
-          messages.value.push({ role: 'assistant', content: '抱歉，服务器暂时响应不过来，请稍后再试。' })
-        }
-        loading.value = false
-        scrollBottom()
-      }
     )
   } catch (e) {
     if (assistantIdx !== -1) {
@@ -467,6 +501,33 @@ async function loadLessonContent() {
   display: flex;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+.references {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+}
+.references-title {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+.reference-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px 0;
+  flex-wrap: wrap;
+}
+.reference-lesson {
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+.reference-meta {
+  color: var(--text-tertiary);
 }
 .action-chip {
   padding: var(--space-1) var(--space-3);

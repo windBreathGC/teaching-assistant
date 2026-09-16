@@ -1,5 +1,6 @@
 """RAG服务：知识库检索"""
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from app.core.config import get_settings
 from app.services.keyword_search import bm25_search
 from app.services.textbook_parser import GRADE_SUFFIX_MAP
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # 学科ID后缀 -> 年级学期，如 "7a" -> "七年级上册"（由 GRADE_SUFFIX_MAP 反转而来）
@@ -308,3 +310,62 @@ async def aretrieve(
 
 # Public alias for API layer usage
 get_doc_by_lesson_name = _get_doc_by_lesson_name
+resolve_subject_name = _resolve_subject_name
+
+
+def _judge_sufficiency(vector_hits: list[dict]) -> bool:
+    """检索充分性判定：向量路 top 命中存在 l2 距离 ≤ 阈值即视为充分。
+
+    必须在向量召回阶段（RRF 融合前）判定：融合后 BM25-only 命中没有 distance，
+    无法在融合结果上统一判断。记录 top1 距离供阈值调参。
+    """
+    distances = [d["distance"] for d in vector_hits if d.get("distance") is not None]
+    top1 = min(distances) if distances else None
+    sufficient = top1 is not None and top1 <= settings.RAG_DISTANCE_THRESHOLD
+    logger.info(
+        "检索充分性: top1_distance=%s threshold=%.2f sufficient=%s",
+        f"{top1:.3f}" if top1 is not None else "N/A",
+        settings.RAG_DISTANCE_THRESHOLD,
+        sufficient,
+    )
+    return sufficient
+
+
+async def aretrieve_checked(
+    query: str,
+    subject: str | None = None,
+    chapter: str | None = None,
+    lesson: str | None = None,
+    grade: str | None = None,
+    semester: str | None = None,
+    top_k: int = 5,
+    fetch_k: int = 20,
+) -> dict:
+    """带回路充分性判定的异步检索，供对话工作流使用。
+
+    返回 {"docs": [...], "sufficient": bool}：
+    - 指定课文走 metadata 精确匹配（distance=0）→ sufficient=True
+    - 混合检索 → 以向量路 top1 距离是否越过阈值判定 sufficient
+    原 retrieve/aretrieve 签名与行为不变，ingest/eval 等既有调用方零影响。
+    """
+    if subject and (not grade or not semester):
+        d_grade, d_semester = _resolve_grade_semester(subject)
+        grade = grade or d_grade
+        semester = semester or d_semester
+
+    lesson_name = get_lesson_name(lesson)
+    if lesson_name and subject:
+        direct = _get_doc_by_lesson_name(subject, lesson_name, grade, semester)
+        if direct:
+            return {"docs": direct, "sufficient": True}
+
+    embeddings = get_embeddings()
+    query_vector = await embeddings.aembed_query(query)
+    where_filter = _build_where_filter(subject, grade, semester)
+
+    vector_hits = _vector_search(query_vector, where_filter, fetch_k)
+    sufficient = _judge_sufficiency(vector_hits)
+    bm25_hits = bm25_search(query, get_collection(), where_filter, top_n=fetch_k)
+    if not bm25_hits:
+        return {"docs": vector_hits[:top_k], "sufficient": sufficient}
+    return {"docs": _rrf_merge(vector_hits, bm25_hits)[:top_k], "sufficient": sufficient}

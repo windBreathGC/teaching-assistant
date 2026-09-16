@@ -8,8 +8,13 @@
 - **多年级支持**：七年级上册、七年级下册（可扩展六至九年级）
 - **AI 知识问答**：基于教材内容的 RAG 检索，回答与课本相关的问题
 - **混合检索**：向量语义 + BM25 关键词双路召回，RRF 融合排序，兼顾语义理解与术语/课文名精确匹配
+- **检索兜底防幻觉**：向量距离阈值判定检索充分性，教材中找不到依据时 AI 诚实说明而非强行作答
+- **引用溯源**：回答附带教材出处（课文/章节/年级），可信任、可核对
+- **多轮对话记忆**：LangGraph checkpointer 会话持久化，支持指代消解（"它有什么性质"知道"它"指什么）
 - **课文讲解**：自动加载课文原文，AI 逐段讲解重点难点
-- **随堂测验**：AI 根据当前章节生成选择题、填空题、简答题
+- **随堂测验**：AI 根据当前章节生成选择题、填空题、简答题（题目真实出自教材检索）
+- **作答判分与错因诊断**：提交答案即判分，答错时 AI 诊断错因（概念不清/审题偏差/计算失误等）并讲解正确思路；聊天内"我选B"也能直接判分
+- **学习者画像**：EMA + 遗忘衰减的知识点掌握度模型，随时查询学情报告（"我的学习进度怎么样"）
 - **章节导航**：按年级 -> 学科 -> 单元 -> 课文的层级结构浏览教材
 - **流式响应**：AI 回答采用流式输出，响应更快更自然
 - **教材管理后台**：扫描、解析、向量化教材，支持一键全量更新
@@ -33,7 +38,8 @@
                                             |
                                    +--------v--------+
                                    |   SQLite (aiosqlite)
-                                   |  (模型配置、任务记录)
+                                   |  (模型配置、任务记录、
+                                   |   学习画像、会话记忆)
                                    +-----------------+
 ```
 
@@ -66,15 +72,16 @@
 │   │   ├── core/              # 配置、常量
 │   │   ├── db/                # 数据库模型与连接（SQLite）
 │   │   ├── models/            # Pydantic 数据模型
-│   │   ├── services/          # 业务逻辑（RAG、教学 Agent、教材解析/生成/分析、模型配置、任务管理）
+│   │   ├── services/          # 业务逻辑（RAG、教学 Agent、判分、学习画像、会话记忆、教材解析/生成/分析、模型配置、任务管理）
 │   │   └── utils/             # 工具函数
 │   ├── chroma_db/             # 向量数据库持久化目录
 │   ├── data/                  # 结构化数据与 SQLite 数据库
 │   │   ├── generated/         # 解析生成的教材 JSON 数据
 │   │   ├── subjects/          # 学科元数据清单
 │   │   ├── ingest_index.json  # chunk 级增量向量化索引
-│   │   └── app.db             # SQLite 数据库
-│   ├── scripts/               # 数据导入脚本
+│   │   ├── checkpoints.db     # LangGraph 会话记忆（多轮对话状态）
+│   │   └── app.db             # SQLite 数据库（模型配置、任务、学习画像）
+│   ├── scripts/               # 数据导入与评估脚本
 │   ├── pyproject.toml         # 项目元信息与依赖声明（uv）
 │   ├── uv.lock                # 依赖锁文件（uv）
 │   ├── .python-version        # Python 版本固定（uv）
@@ -130,6 +137,8 @@ cp .env.example .env
 | `BACKEND_PORT` | 否 | 后端端口（默认 8000） | `8000` |
 | `FRONTEND_PORT` | 否 | 前端端口（默认 5173） | `5173` |
 | `DEBUG` | 否 | 调试模式（默认 False） | `False` |
+| `RAG_DISTANCE_THRESHOLD` | 否 | 检索充分性阈值（l2 距离，默认 1.2；超过则判定"教材中未找到足够依据"，走诚实兜底回答） | `1.2` |
+| `HISTORY_MAX_MESSAGES` | 否 | 发给 LLM 的对话历史窗口（条数，默认 12） | `12` |
 
 > 支持任何 OpenAI 兼容格式的 LLM 平台，如 [SiliconFlow](https://siliconflow.cn/)、[DashScope](https://dashscope.aliyun.com/) 等。
 
@@ -247,11 +256,50 @@ python scripts/ingest_textbooks.py
 
 ### 后端设计细节
 
-混合检索（向量 + BM25 双路召回、RRF 融合）、chunk 级增量入库、LangGraph 对话工作流等后端设计与实现细节，统一收录在 [backend/README.md](backend/README.md)：
+混合检索（向量 + BM25 双路召回、RRF 融合）、检索充分性判定、chunk 级增量入库、LangGraph 对话工作流（checkpointer 多轮记忆）、测验判分闭环、学习者画像等后端设计与实现细节，统一收录在 [backend/README.md](backend/README.md)：
 
-- 知识检索：三级策略（metadata 精确匹配优先 → 混合检索 → RRF 融合）
-- LangGraph 工作流：意图识别 → 条件路由 → 检索/出题/闲聊分支
+- 知识检索：三级策略（metadata 精确匹配优先 → 混合检索 → RRF 融合）+ 距离阈值充分性判定 + 引用溯源
+- LangGraph 工作流：意图识别 → 条件路由 → 检索/出题/判分/学情/闲聊分支
+- 对话记忆：checkpointer 会话持久化，多轮上下文与"我选B"作答判分
+- 判分闭环：出题落库 → 提交判分（选择题本地比对、填空简答 LLM 判分）→ 错因诊断 → 掌握度更新
+- 学习画像：EMA + 遗忘衰减的掌握度模型，学情报告（LLM 包装 + 模板兜底）
 - 向量化增量更新：chunk 级 diff、稳定 ID、先增后删、数据自愈
+
+## 学习闭环示例
+
+一次完整的学习闭环长这样（全部在对话中自然发生）：
+
+```
+学生：出道题考考我
+ AI ：📝 测验题  《杞人忧天》这则寓言的寓意是什么？
+      A. 要珍惜时间，努力学习      B. 要尊重他人，择善而从
+      C. 要有科学精神，不要为不必要的事情担忧  D. 要坚定志向
+      （请直接回复你的答案，如：我选A）
+      📚 教材出处：第24课《寓言四则》 · 第六单元 · 七年级上册
+
+学生：我选A
+ AI ：❌ 回答错误，别灰心，我们一起来看看。
+      正确答案：C
+      错因标签：审题偏差
+      错因诊断：你选择了A，说明你理解了寓言中"担忧"的主题，
+                但没有准确把握核心寓意……
+      知识点「寓言的寓意」掌握度：0%（0/1 题正确）
+
+学生：我的学习进度怎么样
+ AI ：📊 语文学情报告
+      累计作答 3 题，正确率 33%，近 7 天作答 3 题
+      薄弱知识点：寓言的寓意（掌握度 0%）……
+      建议：先复习《寓言四则》，再来几道题巩固！
+```
+
+支撑这个闭环的四个核心能力：
+
+| 能力 | 实现 | 说明 |
+|------|------|------|
+| **多轮记忆** | LangGraph `AsyncSqliteSaver` checkpointer | 按 `session_id` 持久化会话，"它/刚才那道"等指代可消解；聊天内出的题被记住，"我选B"直接判分 |
+| **判分+错因** | 出题落库 `quiz_attempts` + 分层判分 | 选择题本地比对（不调 LLM 判对错），填空/简答 LLM 判分；答错生成错因标签与诊断讲解；幂等防重复刷分 |
+| **学习画像** | `knowledge_mastery` 表 + EMA/遗忘衰减 | 每个知识点的掌握度随作答更新、随时间遗忘；"进度查询"意图驱动学情报告 |
+| **溯源+兜底** | 向量距离阈值 + `references` 事件 | 教材找不到依据时诚实说明；回答附教材出处，可核对 |
 
 ## API 接口
 
@@ -267,12 +315,13 @@ python scripts/ingest_textbooks.py
 | `GET /subjects/{subject_id}/chapters` | GET | 获取某学科的章节列表 |
 | `GET /subjects/{subject_id}/chapters/{chapter_id}/lessons` | GET | 获取某章节下的课文/课时列表 |
 | `GET /subjects/{subject_id}/lessons/{lesson_id}/content` | GET | 获取某课文的原文内容 |
-| `POST /chat` | POST | AI 对话（非流式） |
-| `POST /chat/stream` | POST | AI 对话（SSE 流式，逐 token 返回） |
-| `POST /chat/quiz` | POST | 生成测验题目（非流式） |
-| `POST /chat/quiz/stream` | POST | 生成测验题目（SSE 流式） |
+| `POST /chat` | POST | AI 对话（非流式，多轮记忆） |
+| `POST /chat/stream` | POST | AI 对话（SSE 流式，逐 token 返回，多轮记忆） |
+| `POST /chat/quiz` | POST | 生成测验题目（非流式，返回 `quiz_id`） |
+| `POST /chat/quiz/stream` | POST | 生成测验题目（SSE 流式，返回 `quiz_id`） |
+| `POST /chat/quiz/submit` | POST | 提交答案判分（错因诊断 + 掌握度更新，幂等） |
 
-> 流式接口的 SSE 传输格式与事件协议（`intent` / `token` / `done` / `error`）详见 [backend/README.md](backend/README.md)。
+> 流式接口的 SSE 传输格式与事件协议（`intent` / `references` / `token` / `done` / `error`）、多轮记忆的 `session_id` 约定详见 [backend/README.md](backend/README.md)。
 
 ### 管理后台接口
 
@@ -390,6 +439,48 @@ Embedding 模型（固定，.env 配置） ──→ ChromaDB（知识库）
 
 无需修改 `.env`，直接在前端「管理后台」->「模型接入管理」中添加或编辑模型配置，并设为默认即可。LLM 模型切换不会影响知识检索。
 
+**Q: 多轮对话的"记忆"存在哪里？如何清空？**
+
+会话状态（对话历史、待作答题目）由 LangGraph checkpointer 持久化在 `backend/data/checkpoints.db`，按前端 `session_id`（localStorage）续接。前端**切换课程会自动开启新会话**；想彻底清空记忆，停止服务后删除 `checkpoints.db` 即可。学习画像（答题记录、知识点掌握度）存在 `backend/data/app.db` 的 `quiz_attempts` / `knowledge_mastery` 表中，删除对应行即清空学情。
+
+**Q: AI 说"教材中暂未找到直接依据"是怎么回事？**
+
+这是防幻觉的检索兜底机制：向量检索 top1 距离超过 `RAG_DISTANCE_THRESHOLD`（默认 1.2）时，判定教材中没有足够相关的内容，AI 会诚实说明并基于通用知识简要回答。如果确认教材里有相关内容，请先执行「一键全量更新」入库该教材；阈值需按所用 embedding 模型调参（依据后端日志中的 `top1_distance`）。
+
 ## 许可证
 
 MIT License
+
+## RAG 质量评估（Ragas）
+
+基于 [Ragas](https://docs.ragas.io/) 的评估流水线，衡量系统的**检索召回率**与**生成准确率**，用于检索策略/模型变更前后的效果对比。脚本位于 `backend/scripts/`。
+
+### 两个脚本
+
+| 脚本 | 作用 |
+| --- | --- |
+| `gen_eval_testset.py` | 从 ChromaDB 按课文分组取全文，LLM 出题并给标准答案，生成 JSONL 测试集（默认 4 本教材 × 3 课 × 3 题 = 36 题） |
+| `eval_ragas.py` | 对测试集逐条复现线上 `retrieve → reply` 调用链，输出确定性检索指标 + Ragas LLM 裁判指标 |
+
+### 用法（在 `backend/` 目录下）
+
+```bash
+uv run python scripts/gen_eval_testset.py                 # 生成/重新生成测试集
+uv run python scripts/eval_ragas.py                       # 全量评估
+uv run python scripts/eval_ragas.py --limit 5             # 小规模冒烟
+uv run python scripts/eval_ragas.py --skip-ragas          # 只跑确定性检索指标（零 LLM 裁判成本）
+uv run python scripts/eval_ragas.py --top-k 5             # 对比不同 top_k
+```
+
+### 指标体系
+
+- **确定性检索指标**（利用 chunk 的 `lesson` metadata 判定，无需 LLM，准确且免费）：`hit_rate@k`（是否检索到目标课文）、`mrr`（目标课文命中排名倒数）。
+- **Ragas 指标**（LLM 裁判）：`faithfulness`（回答是否忠于检索内容，防幻觉核心指标）、`answer_correctness`（与标准答案一致性）、`context_precision` / `context_recall`（检索质量）。
+- 测试集分 **A 类**（带 `lesson_id`，走 metadata 精确匹配路径）与 **B 类**（开放提问，走向量+BM25 混合检索路径），两条检索路径分开统计，避免精确匹配路径掩盖混合检索的真实召回率。
+
+### 评估特别提醒
+
+1. **裁判模型已关闭 thinking**（`enable_thinking: False`）。Qwen3 等思考模型不关闭时，裁判调用会因长时间无输出而大面积超时。
+2. **`answer_correctness` 关闭了语义相似度子项**（`weights=[1.0, 0.0]`，仅保留 LLM 事实性判定）。该子项需对完整回答做 embedding，而 bge-large-zh-v1.5 上限 512 tokens，长回答会被平台 400 拒绝。若换用 bge-m3 等长文本 embedding 模型，可恢复默认 `[0.75, 0.25]`。
+3. **`faithfulness` 偏低不一定全是坏事。** 教学 system prompt 要求情境导入、生活化比喻、例题练习，这些本就不在教材原文里，会被忠实度指标扣分。看趋势变化比看绝对值更有意义。
+4. **评估结果按时间戳存档**：`eval_report_*.csv`（逐样本指标）+ `eval_debug_*.jsonl`（完整回答与检索上下文，用于失败分析）。每次变更检索策略（RRF 参数、top_k、embedding 模型）后重跑对比。

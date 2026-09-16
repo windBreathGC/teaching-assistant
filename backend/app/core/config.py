@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # bge-large-zh 等模型上限 512 tokens（中文 1 字 ≈ 1 token），超限会被拒绝，留安全边际
     MAX_CHUNK_CHARS: int = 480
 
+    # RAG 检索充分性阈值：向量路 l2 距离，top1 超过该值视为"教材中未找到足够依据"，
+    # reply 走兜底提示分支。依 embedding 模型分布而异，需结合 INFO 日志中的 top1 距离调参
+    RAG_DISTANCE_THRESHOLD: float = 1.2
+
+    # 发给 LLM 的对话历史窗口（条数，约条数/2 轮问答），控制 prompt token
+    HISTORY_MAX_MESSAGES: int = 12
+
     class Config:
         env_file = str(_ROOT_ENV)
         env_file_encoding = "utf-8"

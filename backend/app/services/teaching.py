@@ -2,7 +2,8 @@
 import logging
 import re
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import BaseMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from app.core.config import get_settings
 
@@ -49,8 +50,16 @@ _system_prompt = """你是一位经验丰富、耐心细致的中学教师，正
 
 _reply_prompt = ChatPromptTemplate.from_messages([
     ("system", _system_prompt),
+    # 多轮对话记忆注入点：会话历史（含 AI 回复），支撑指代消解与上下文连贯
+    MessagesPlaceholder(variable_name="history"),
     ("human", "【检索到的教材内容】\n{context}\n\n【用户问题】\n{message}\n\n请基于教材内容，以教师的身份给出详细、生动、循序渐进的回答。"),
 ])
+
+# 检索不充分时的兜底提示：拼接到用户问题后，引导模型诚实说明而非强行作答
+_FALLBACK_NOTE = (
+    "\n\n【重要提示】本次未在教材中检索到足够相关的内容。请明确告知学生"
+    "\"教材中暂未找到直接依据\"，再基于通用知识简要回答，并建议学生确认所选课文或换个问法。"
+)
 
 
 def _build_context(docs: list[dict]) -> str:
@@ -76,12 +85,14 @@ def _build_suggested_actions(message: str) -> list[str]:
     return actions[:3]
 
 
-def generate_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict]) -> dict:
+def generate_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict],
+                   history: list[BaseMessage] | None = None, retrieval_ok: bool = True) -> dict:
     """基于检索结果生成教学回复（同步版本）"""
     context = _build_context(docs)
     chain = _reply_prompt | get_llm() | StrOutputParser()
     reply = chain.invoke({
-        "message": message,
+        "message": message if retrieval_ok else message + _FALLBACK_NOTE,
+        "history": history or [],
         "subject": subject or "未知学科",
         "chapter": chapter or "未知章节",
         "lesson": lesson or "未指定课文",
@@ -94,7 +105,8 @@ def generate_reply(message: str, subject: str, chapter: str, lesson: str | None,
     }
 
 
-async def agenerate_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict]) -> dict:
+async def agenerate_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict],
+                          history: list[BaseMessage] | None = None, retrieval_ok: bool = True) -> dict:
     """基于检索结果生成教学回复（异步版本）。
 
     内部采用 astream 逐 token 生成并聚合：返回值与一次性调用无异，
@@ -104,7 +116,8 @@ async def agenerate_reply(message: str, subject: str, chapter: str, lesson: str 
     chain = _reply_prompt | get_llm()
     parts: list[str] = []
     async for chunk in chain.astream({
-        "message": message,
+        "message": message if retrieval_ok else message + _FALLBACK_NOTE,
+        "history": history or [],
         "subject": subject or "未知学科",
         "chapter": chapter or "未知章节",
         "lesson": lesson or "未指定课文",
@@ -133,12 +146,14 @@ def _extract_text(chunk) -> str:
     return ""
 
 
-async def stream_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict]):
+async def stream_reply(message: str, subject: str, chapter: str, lesson: str | None, docs: list[dict],
+                       history: list[BaseMessage] | None = None, retrieval_ok: bool = True):
     """流式生成教学回复，yield 每个 token（空 chunk 已过滤）"""
     context = _build_context(docs)
     chain = _reply_prompt | get_llm()
     async for chunk in chain.astream({
-        "message": message,
+        "message": message if retrieval_ok else message + _FALLBACK_NOTE,
+        "history": history or [],
         "subject": subject or "未知学科",
         "chapter": chapter or "未知章节",
         "lesson": lesson or "未指定课文",
@@ -249,3 +264,63 @@ async def stream_quiz(subject: str, chapter: str, lesson: str | None, docs: list
         text = _extract_text(chunk)
         if text:
             yield text
+
+
+_progress_prompt = ChatPromptTemplate.from_messages([
+    ("system",
+     "你是一位亲切细致的中学老师，正在和学生复盘他最近的学习情况。\n"
+     "要求：\n"
+     "1. 语气鼓励为主，先肯定努力，再指出薄弱点\n"
+     "2. 用具体数据说话（答题数、正确率、掌握度）\n"
+     "3. 对薄弱知识点给出可执行的下一步建议（复习哪篇课文、做哪类题）\n"
+     "4. 结构化输出，用标题和列表，200字左右\n"
+     "5. 数据中没有的信息不要编造；没有作答记录时，引导学生先去做几道题"),
+    ("human", "【学科】{subject}\n【学习数据】\n{report}\n\n请生成学情报告。"),
+])
+
+
+def format_progress_fallback(report: dict, subject_name: str) -> str:
+    """学情报告的模板兜底（LLM 异常时使用，保证进度查询永远有回应）。"""
+    total = report.get("total_attempts", 0)
+    if total == 0:
+        return (
+            f"你还没有在《{subject_name}》做过测验题哦～\n\n"
+            "先去「随堂测验」做几道题，我就能帮你分析掌握情况了。"
+        )
+    lines = [
+        f"📊 {subject_name} 学情速览",
+        "",
+        f"- 累计作答：{total} 题，正确率 {report.get('accuracy', 0) * 100:.0f}%",
+        f"- 近 7 天作答：{report.get('recent_7d_attempts', 0)} 题",
+    ]
+    weak = report.get("weak_points") or []
+    if weak:
+        lines.append("- 薄弱知识点：" + "、".join(
+            f"{m['knowledge_point']}（掌握度 {m['mastery'] * 100:.0f}%）" for m in weak[:3]))
+    strong = report.get("strong_points") or []
+    if strong:
+        lines.append("- 掌握较好：" + "、".join(m["knowledge_point"] for m in strong[:3]))
+    lines.append("\n建议优先复习薄弱知识点，再来几道题巩固一下！")
+    return "\n".join(lines)
+
+
+async def arender_progress_report(report: dict, subject_name: str) -> str:
+    """把学情数据用 LLM 包装成教师口吻的报告（astream 聚合，token 可冒泡出图）。
+
+    异常时降级为模板字符串，保证进度查询永不为空。"""
+    import json as _json
+    chain = _progress_prompt | get_llm()
+    parts: list[str] = []
+    try:
+        async for chunk in chain.astream({
+            "subject": subject_name,
+            "report": _json.dumps(report, ensure_ascii=False, indent=2),
+        }):
+            text = _extract_text(chunk)
+            if text:
+                parts.append(text)
+    except Exception as e:
+        logger.warning("学情报告生成失败，使用模板兜底: %s", e)
+        return format_progress_fallback(report, subject_name)
+    rendered = "".join(parts).strip()
+    return rendered or format_progress_fallback(report, subject_name)

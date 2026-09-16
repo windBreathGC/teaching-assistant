@@ -121,10 +121,11 @@
             <el-button
               v-if="!revealed"
               type="primary"
+              :loading="submitting"
               :disabled="quiz.options ? selectedOption === null : !userAnswer.trim()"
               @click="revealAnswer"
             >
-              提交答案
+              {{ submitting ? '判分中...' : '提交答案' }}
             </el-button>
             <el-button v-else type="success" @click="generateQuiz">
               再来一题
@@ -137,9 +138,15 @@
               <span :class="isCorrect ? 'text-correct' : 'text-wrong'">
                 {{ isCorrect ? '回答正确！' : '回答错误' }}
               </span>
+              <span v-if="gradeResult?.misconception" class="misconception-chip">
+                {{ gradeResult.misconception }}
+              </span>
             </div>
             <div class="correct-answer">
               <strong>正确答案：</strong>{{ quiz.correct_answer }}
+            </div>
+            <div v-if="gradeResult?.diagnosis" class="diagnosis">
+              <strong>错因诊断：</strong>{{ gradeResult.diagnosis }}
             </div>
             <div class="explanation-body">
               <MarkdownRenderer :source="quiz.explanation" />
@@ -147,6 +154,10 @@
             <div class="knowledge-point">
               <el-icon size="14"><Collection /></el-icon>
               <span>知识点：{{ quiz.knowledge_point }}</span>
+              <span v-if="gradeResult?.mastery" class="mastery-tag">
+                掌握度 {{ Math.round(gradeResult.mastery.mastery * 100) }}%
+                （{{ gradeResult.mastery.correct_attempts }}/{{ gradeResult.mastery.total_attempts }} 题正确）
+              </span>
             </div>
           </div>
         </div>
@@ -160,7 +171,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { quizApi } from '../api/client'
-import type { QuizResp } from '../api/client'
+import type { QuizResp, QuizStreamDone, QuizGradeResp } from '../api/client'
 import { EditPen, MagicStick, CircleCheck, CircleClose, Collection, Menu } from '@element-plus/icons-vue'
 import SubjectTree from '../components/SubjectTree.vue'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
@@ -181,6 +192,9 @@ const quiz = ref<QuizResp | null>(null)
 const selectedOption = ref<number | null>(null)
 const userAnswer = ref('')
 const revealed = ref(false)
+const submitting = ref(false)
+// 后端判分结果（无 quiz_id 时回退本地比对）
+const gradeResult = ref<QuizGradeResp | null>(null)
 
 function normalizeAnswer(ans: string): string {
   return ans.trim().replace(/[。．.！!？?]$/, '')
@@ -188,6 +202,8 @@ function normalizeAnswer(ans: string): string {
 
 const isCorrect = computed(() => {
   if (!quiz.value) return false
+  if (gradeResult.value) return gradeResult.value.is_correct
+  // 本地兜底：仅在缺少 quiz_id（旧后端）时使用
   if (quiz.value.options && selectedOption.value !== null) {
     return quiz.value.correct_answer === String.fromCharCode(65 + selectedOption.value)
   }
@@ -195,8 +211,9 @@ const isCorrect = computed(() => {
 })
 
 function isCorrectOption(idx: number) {
-  if (!quiz.value) return false
-  return quiz.value.correct_answer === String.fromCharCode(65 + idx)
+  const answer = gradeResult.value?.correct_answer ?? quiz.value?.correct_answer
+  if (!answer) return false
+  return answer === String.fromCharCode(65 + idx)
 }
 
 async function generateQuiz() {
@@ -205,12 +222,14 @@ async function generateQuiz() {
   revealed.value = false
   selectedOption.value = null
   userAnswer.value = ''
+  gradeResult.value = null
   quiz.value = {
     question: '',
     options: null,
     correct_answer: '',
     explanation: '',
     knowledge_point: currentChapter.value?.name || '通用知识点',
+    quiz_id: null,
   }
 
   let streamBuffer = ''
@@ -234,13 +253,14 @@ async function generateQuiz() {
           }
         }
       },
-      (question: string, options: string[] | null, correctAnswer: string, explanation: string, knowledgePoint: string) => {
+      (result: QuizStreamDone) => {
         if (quiz.value) {
-          quiz.value.question = question
-          quiz.value.options = options
-          quiz.value.correct_answer = correctAnswer
-          quiz.value.explanation = explanation
-          quiz.value.knowledge_point = knowledgePoint
+          quiz.value.question = result.question
+          quiz.value.options = result.options
+          quiz.value.correct_answer = result.correct_answer
+          quiz.value.explanation = result.explanation
+          quiz.value.knowledge_point = result.knowledge_point
+          quiz.value.quiz_id = result.quiz_id
         }
       },
       (err: string) => {
@@ -257,8 +277,35 @@ async function generateQuiz() {
   }
 }
 
-function revealAnswer() {
-  revealed.value = true
+async function revealAnswer() {
+  if (!quiz.value) return
+
+  // 无 quiz_id（旧后端或未落库）→ 保持原本地判分行为
+  if (!quiz.value.quiz_id) {
+    revealed.value = true
+    return
+  }
+
+  const answer = quiz.value.options
+    ? String.fromCharCode(65 + (selectedOption.value ?? 0))
+    : userAnswer.value.trim()
+  if (!answer) return
+
+  submitting.value = true
+  try {
+    const { data } = await quizApi.submit(quiz.value.quiz_id, answer)
+    gradeResult.value = data
+    // 用后端权威结果覆盖（解析/答案可能与生成时略有出入）
+    quiz.value.correct_answer = data.correct_answer
+    quiz.value.explanation = data.explanation
+    quiz.value.knowledge_point = data.knowledge_point
+    revealed.value = true
+  } catch (e: any) {
+    const msg = e?.response?.data?.detail || '判分失败，请稍后再试'
+    alert(msg)
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -550,6 +597,32 @@ function revealAnswer() {
   gap: var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-tertiary);
+  flex-wrap: wrap;
+}
+.misconception-chip {
+  padding: 2px var(--space-3);
+  border-radius: 100px;
+  background: #fff0f0;
+  color: var(--accent-danger);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.diagnosis {
+  padding: var(--space-3) var(--space-4);
+  background: #fff8e6;
+  border-left: 3px solid #e6a23c;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+.mastery-tag {
+  padding: 2px var(--space-2);
+  border-radius: 100px;
+  background: var(--accent-primary-light);
+  color: var(--accent-primary);
+  font-weight: 600;
 }
 
 @media (max-width: 768px) {

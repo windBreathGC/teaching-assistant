@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse
 from app.core.config import get_settings
 from app.api import health, subjects, chat, admin
 from app.services.model_config_service import init_default_model_from_env
+from app.services.agent import build_agent
+from app.services.memory import create_checkpointer
 from app.db import init_db, close_db
 
 settings = get_settings()
@@ -20,7 +22,11 @@ async def lifespan(app: FastAPI):
     # 服务启动时：初始化数据库、创建默认模型
     await init_db()
     await init_default_model_from_env()
-    yield
+    # 装配带 checkpointer 的对话工作流（多轮记忆）：连接生命周期与 app 一致，
+    # 必须在 lifespan 的 async with 中持有，请求间不可开关
+    async with create_checkpointer() as checkpointer:
+        app.state.agent = build_agent(checkpointer)
+        yield
     # 服务关闭时：清理数据库连接
     await close_db()
 
