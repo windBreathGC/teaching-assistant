@@ -36,6 +36,9 @@ logs/
 backend/data/ingest_index.json
 # Encryption key for api_key storage (auto-generated)
 backend/data/.encryption_key
+# Ragas 评估运行产物（按时间戳存档，每次评估重新生成，量大且易变）
+backend/scripts/eval_debug_*.jsonl
+backend/scripts/eval_report_*.csv
 
 # IDE
 .vscode/

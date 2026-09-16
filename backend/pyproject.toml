@@ -34,4 +34,5 @@ dependencies = [
     # Security
     "cryptography>=42.0.0",
     "bm25s>=0.3.10",
+    "ragas>=0.4.3",
 ]
