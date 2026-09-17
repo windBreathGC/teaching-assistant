@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import uuid
@@ -154,7 +155,10 @@ async def generate_quiz_endpoint(request: QuizRequest):
             lesson=request.lesson,
             top_k=2,
         )
-        quiz = generate_quiz(
+        # generate_quiz 是同步链（内部 chain.invoke 走同步 HTTP），
+        # 直接 await 会把秒级 LLM 调用压在事件循环上，卡死并发的 /chat/stream
+        quiz = await asyncio.to_thread(
+            generate_quiz,
             subject=request.subject,
             chapter=request.chapter or "",
             lesson=request.lesson,
@@ -172,7 +176,7 @@ async def generate_quiz_endpoint(request: QuizRequest):
         )
         return QuizResponse(
             question=quiz["question"],
-            options=None,
+            options=quiz.get("options"),
             correct_answer=quiz["correct_answer"],
             explanation=quiz["explanation"],
             knowledge_point=quiz["knowledge_point"],

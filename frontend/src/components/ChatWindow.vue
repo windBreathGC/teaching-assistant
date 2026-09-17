@@ -136,12 +136,6 @@ const currentSubject = computed(() => store.currentSubject)
 const currentChapter = computed(() => store.currentChapter)
 const currentLesson = computed(() => store.currentLesson)
 
-// 切换课程即开启新会话：checkpointer 按 session_id 续接记忆，
-// 不复位会把上一门课的对话历史带进新课程（跨课串味）
-watch(() => currentSubject.value?.id, (newId, oldId) => {
-  if (newId !== oldId) clearSessionId()
-})
-
 function onMenuClick() {
   if (store.isMobile) {
     store.toggleSidebar()
@@ -164,18 +158,32 @@ const subjectColor = computed(() => {
 
 const input = ref('')
 const loading = ref(false)
+
+// 切换课程后的初始欢迎语（与会话重置配套，见下方 watch）
+function welcomeMessage() {
+  return {
+    role: 'assistant',
+    content: '你好！我是你的AI学习助手。选择左侧的课程和章节，就可以开始学习了。你可以问我任何问题，比如"给我讲解这个单元"、"出道题考考我"或者"总结一下重点"。',
+    suggested_actions: ['给我讲解这个单元', '出道题考考我', '总结一下重点'],
+  }
+}
+
 const messages = ref<Array<{
   role: string
   content: string
   suggested_actions?: string[]
   references?: Reference[]
-}>>([
-  {
-    role: 'assistant',
-    content: '你好！我是你的AI学习助手。选择左侧的课程和章节，就可以开始学习了。你可以问我任何问题，比如"给我讲解这个单元"、"出道题考考我"或者"总结一下重点"。',
-    suggested_actions: ['给我讲解这个单元', '出道题考考我', '总结一下重点'],
-  },
-])
+}>>([welcomeMessage()])
+
+// 切换课程即开启新会话：checkpointer 按 session_id 续接记忆，
+// 不复位会把上一门课的对话历史带进新课程（跨课串味）；
+// 界面消息也要一并清空——否则学生看得见历史、AI 却不记得，
+// 指着屏幕上的旧消息追问（"它有什么性质"）会得到莫名其妙的回答
+watch(() => currentSubject.value?.id, (newId, oldId) => {
+  if (newId === oldId) return
+  clearSessionId()
+  messages.value = [welcomeMessage()]
+})
 
 const msgRef = ref<HTMLDivElement>()
 

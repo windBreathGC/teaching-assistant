@@ -44,21 +44,30 @@ _DIAGNOSIS_PROMPT = ChatPromptTemplate.from_messages([
 
 
 # 显式作答模式（按优先级）：避免"A不对，应该选B"这类表述提取到错误字母
+# 注意：匹配前文本已 upper()，英文模式需大写
 _EXPLICIT_LETTER_PATTERNS = [
     re.compile(r'选\s*([A-D])'),                    # 应该选B / 我选A
     re.compile(r'答案是\s*[：:]?\s*([A-D])'),       # 答案是B
     re.compile(r'^\s*([A-D])\s*[.、．]?$'),         # 整句只有一个字母
+    # 英文作答：the answer is B / I choose B（取紧跟在关键词后的字母）
+    re.compile(r'(?:ANSWER|CHOOSE|CHOICE|PICK)\s*(?:IS\s*)?[：:\s]\s*([A-D])(?![A-Z])'),
 ]
+
+# 兜底：仅匹配独立成词的字母（前后不是其他大写字母），
+# 避免从英文作答的 "CHOOSE""BECAUSE" 等单词中误取首字母
+_STANDALONE_LETTER_RE = re.compile(r'(?<![A-Z])([A-D])(?![A-Z])')
 
 
 def _extract_choice_letter(text: str) -> str | None:
-    """从作答/答案文本中提取选项字母：先显式模式，兜底取全串第一个 A-D。"""
+    """从作答/答案文本中提取选项字母：先显式模式，兜底只认独立成词的字母。
+
+    返回 None 表示无法可靠提取，调用方应降级 LLM 判分而非当成答错。"""
     t = (text or '').strip().upper()
     for pattern in _EXPLICIT_LETTER_PATTERNS:
         m = pattern.search(t)
         if m:
             return m.group(1)
-    m = re.search(r'([A-D])', t)
+    m = _STANDALONE_LETTER_RE.search(t)
     return m.group(1) if m else None
 
 
@@ -146,11 +155,15 @@ async def grade_answer(
     if is_choice and correct_letter is not None:
         # 标准路径：字母本地精确比对，不调 LLM 判对错
         student_letter = _extract_choice_letter(user_answer)
-        is_correct = bool(student_letter) and student_letter == correct_letter
-        if is_correct:
-            return {"is_correct": True, "score": 1.0, "misconception": None, "diagnosis": ""}
-        diag = await _llm_diagnosis(question, options, correct_answer, user_answer)
-        return {"is_correct": False, "score": 0.0, **diag}
+        if student_letter is not None:
+            is_correct = student_letter == correct_letter
+            if is_correct:
+                return {"is_correct": True, "score": 1.0, "misconception": None, "diagnosis": ""}
+            diag = await _llm_diagnosis(question, options, correct_answer, user_answer)
+            return {"is_correct": False, "score": 0.0, **diag}
+        # 自由表述的作答（如英文解释）无法可靠提取字母，误判为错会污染掌握度，
+        # 降级 LLM 判分让模型按作答内容语义判定
+        logger.info("选择题作答未提取到选项字母，降级LLM判分: %s", user_answer[:50])
 
     if is_choice:
         # 出题未遵守"答案只写字母"（如解析性文本），本地比对不可用，降级 LLM 判分
