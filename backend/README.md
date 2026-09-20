@@ -2,7 +2,7 @@
 
 FastAPI 后端服务，提供教材检索（RAG）、AI 对话、随堂测验、作答判分、学情画像等 API。
 
-> 项目整体介绍、安装与启动方式见根目录 [README.md](../README.md)。本文档收录后端的**设计与实现细节**：流式接口（SSE）契约、知识检索（混合检索 + RRF 融合 + 充分性判定）、LangGraph 对话工作流（含 checkpointer 多轮记忆）、测验判分闭环、学习者画像、向量化增量更新机制。
+> 项目整体介绍、安装与启动方式见根目录 [README.md](../README.md)。本文档收录后端的**设计与实现细节**：流式接口（SSE）契约、知识检索（混合检索 + RRF 融合 + 充分性判定）、LangGraph 对话工作流（含 checkpointer 多轮记忆）、测验判分闭环、学习者画像、韧性设计（重试/降级/熔断/限流）、向量化增量更新机制、Langfuse 可观测性接入与自托管部署。
 
 ## 流式响应设计（SSE）
 
@@ -501,6 +501,74 @@ def update_mastery(old: float, score: float, days_since_last: float) -> float:
 
 **学情查询链路**：学生说"我的学习进度怎么样" → 意图识别（进度查询）→ `progress` 节点聚合 `learner_repo.get_subject_report`（答题数/正确率/薄弱与优势知识点/近 7 天作答）→ LLM 包装成教师口吻的报告（`arender_progress_report`，astream 逐 token 冒泡出图，真流式）→ 异常时降级为模板字符串（`format_progress_fallback`），保证进度查询永远有回应。
 
+## 韧性设计：重试、降级、熔断、限流
+
+LLM 供应商的故障分两类，系统对它们的处理策略根本不同——**错误分类是所有韧性决策的前提**（`app/core/resilience.py` 的 `is_transient_llm_error`）：
+
+| 故障类型 | 例子 | 策略 |
+|----------|------|------|
+| 瞬时故障 | 429 限流、超时、连接失败、5xx | SDK 有限重试 → 持续发生则熔断 fail-fast → 友好提示"模型繁忙"（503） |
+| 永久错误 | 400 参数错误、401 鉴权失败、代码 bug | 不重试、不计入熔断，按普通异常暴露（500 + 完整日志） |
+
+组件实现在 `app/core/resilience.py`（错误分类 + `CircuitBreaker` + `RateLimiter`），接线在 `api/chat.py` 的全部 LLM 端点。
+
+### 重试（Retry）
+
+- **位置**：openai SDK 层。`teaching.py` / `intent.py` 的 `get_llm()` 显式设置 `max_retries=settings.LLM_MAX_RETRIES`（默认 3）——是显式设计，而非依赖 SDK 默认值（2 次）的"碰巧有"。
+- **重试对象**：仅 SDK 判定的瞬时错误（429 / 超时 / 连接失败 / 5xx），指数退避。
+- **封顶理由**：供应商过载时无限重试会加剧拥塞（retry storm）；且交互路径上每次重试都会拉长 TTFT。
+- **与离线路径的区别**：教材入库的 embedding 调用另有 `embed_with_retry`（`ingest_core.py`，3 次退避）。离线批量任务可以激进重试（失败重来成本高），在线交互路径必须克制（用户体感优先）。
+
+### 降级（Degradation）
+
+按"能否无损替代"选择降级形态，分层设计：
+
+| 层 | 场景 | 降级形态 |
+|----|------|----------|
+| 错误分类 | LLM 瞬时故障 | 用户收到"模型繁忙，请稍后重试"（明确可行动），HTTP **503** 而非笼统 500；SSE 走 `error` 事件 |
+| 模板兜底 | 学情报告 | LLM 失败时 `format_progress_fallback` 用结构化数据渲染模板——报告永不为空 |
+| 检索降级 | BM25 索引失败 | 自动降级为纯向量检索，主链路不受影响 |
+| 诚实兜底 | 检索不充分 | prompt 拼接 `_FALLBACK_NOTE`，引导模型说明"教材未找到依据"而非编造 |
+| **不做兜底** | 教学回复（reply） | 无法模板化，强行兜底 = 答非所问。依赖 checkpointer 不落脏数据（见下），用户重发即可安全重来 |
+
+**关键设计：失败重发是天然安全的。** 图执行中断时 checkpointer 不会写入本轮 checkpoint，学生那句提问不会进入会话记忆——不会出现"AI 记得你问过但你没收到回答"的状态错乱。
+
+### 熔断（Circuit Breaker）
+
+针对供应商**持续**过载（如 429 持续十几秒、SDK 重试耗尽）的场景：
+
+```
+closed ──连续瞬时故障 ≥ LLM_CIRCUIT_FAILURE_THRESHOLD(默认3)──▶ open（fail-fast）
+open ──冷却 LLM_CIRCUIT_RECOVERY_SECONDS(默认60s)──────────────▶ half-open（放行一次试探）
+half-open ──试探成功──▶ closed；──试探失败──▶ open（重新冷却）
+```
+
+- **开启期间**：`/chat`、`/chat/stream` 在入口处直接返回 503（不调供应商）——用户秒级收到提示而非白等多次重试超时，供应商同时获得恢复窗口。
+- **只计瞬时故障**：永久错误（代码 bug、参数错误）不熔断，否则一个坏请求会误伤所有正常用户。
+- **记账点**：`chat.py` 全部 LLM 端点（`/chat`、`/chat/stream`、`/quiz`、`/quiz/stream`、`/quiz/submit`）的成功/失败都会汇报；半开状态下任何一条链路试探成功都会恢复闭合。
+- **内存实现**：进程级单例，重启自动重置；多实例部署需换共享存储实现。
+
+### 限流（Rate Limiting）
+
+- **对象**：`/chat`、`/chat/stream`，按 `session_id` 滑动窗口（默认 20 次 / 60 秒）。
+- **动机**：防前端误触连发、脚本刷量打爆供应商配额——本质也是成本控制。
+- **超限行为**：返回 429"提问过于频繁，请稍等片刻"；**不**计入熔断（这是客户端行为，不是供应商故障）。
+- **内存实现**：单机部署适用；多实例需换 Redis 等共享存储。
+
+### 配置项（`.env`）
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `LLM_MAX_RETRIES` | 3 | SDK 层瞬时错误自动重试次数（指数退避） |
+| `LLM_CIRCUIT_FAILURE_THRESHOLD` | 3 | 熔断开启所需的连续瞬时故障次数 |
+| `LLM_CIRCUIT_RECOVERY_SECONDS` | 60 | 熔断冷却期（秒），过后半开试探 |
+| `CHAT_RATE_LIMIT_MAX_CALLS` | 20 | 单会话限流窗口内最大对话请求数 |
+| `CHAT_RATE_LIMIT_WINDOW_SECONDS` | 60 | 限流窗口（秒） |
+
+### 与可观测性的配合
+
+熔断开启/恢复打 WARNING/INFO 日志；瞬时故障的完整现场（intent/retrieve 成功、reply 失败）在 Langfuse trace 中可见。429 风暴期间可结合 trace 的延迟分布判断是供应商容量问题还是自身流量异常。
+
 ## 向量化增量更新机制
 
 系统采用 **chunk 级增量更新**：教材内容被局部修改后，只有真正变化的 chunk 会重新生成向量，其余 chunk 直接复用。核心逻辑在 `app/services/ingest_core.py`，`scripts/ingest_textbooks.py` 与管理后台入库服务两个入口共用。
@@ -567,3 +635,258 @@ def update_mastery(old: float, score: float, days_since_last: float) -> float:
 5. **短暂的"双版本"窗口是刻意的取舍。** 变更的 chunk 采用先增后删，新旧两版会共存几秒，期间查询可能命中一次旧版本。这是用"短暂双版本"换取"零数据丢失窗口"，对教材场景完全可接受。
 6. **文件内完全重复的段落**会得到 `_1`/`_2` 序号后缀的 chunk ID。若在此类重复段落之前有增删导致后缀错位，这几个重复块会被视为变更而重新 embedding——影响仅限重复块，属正常现象。
 7. **v1 → v2 平滑迁移。** 旧版按序号 ID（`{文件名}_chunk_{i}`）的索引仍然兼容：文件未变更时照常跳过，下次内容变更时自动清理旧序号 ID 并迁移到 v2 格式，无需手工干预。
+
+## Langfuse 应用接入（可观测性设计）
+
+LLM 全链路可观测性由 [Langfuse](https://langfuse.com/) 承担（**SDK v4**，基于 OpenTelemetry，经 OTLP 异步批量上报）。**接入是可选的**：`.env` 不配置密钥时所有埋点自动降级为 no-op，业务行为与性能零影响。服务端自托管部署见下节「Langfuse 部署」。
+
+### 三类探针：按代码形态选择，而非改造代码
+
+Langfuse v4 的追踪基座是 OpenTelemetry，不是 LangChain——LangChain callback 只是其中一种自动探针。三种探针互补，产出的 span 基于 OTel 上下文自动嵌套进同一条 trace：
+
+| 探针 | 适用场景 | 本项目使用点 |
+|------|----------|--------------|
+| LangChain `CallbackHandler` | LangChain/LangGraph 流量，自动记录 prompt、completion、token 用量、耗时 | `/chat`、`/chat/stream` 的图入口 config；quiz 直连链；教材生成后台任务 |
+| `@observe` 装饰器 | 非 LangChain 代码（检索、后台任务）手动埋 span | `rag.py` 的 `retrieve` / `aretrieve` / `aretrieve_checked`（`as_type="retriever"`）；`textbook_generator` 的 `generate_outline` / `generate_textbook` |
+| `trace_span` + `create_score` | 需要回写评分的业务节点 | `/chat/quiz/submit`：判分结果回写为 `quiz_correct` 布尔 Score，便于在后台筛选答错 trace 做错因分析 |
+
+### 统一入口：`app/core/observability.py`
+
+业务模块不直接 import langfuse，全部通过这一层访问，未启用时优雅降级：
+
+| 函数 | 作用 | 未启用时行为 |
+|------|------|--------------|
+| `langfuse_enabled()` | 判定开关（密钥齐备且 `LANGFUSE_ENABLED`） | — |
+| `get_langfuse_handler()` | CallbackHandler 单例（`@lru_cache`） | 返回 `None` |
+| `callback_config(tags, session_id, trace_name)` | 构造 RunnableConfig 片段（callbacks + metadata：`langfuse_tags` / `langfuse_session_id` / `langfuse_trace_name`） | 返回 `{}`，可直接作 config 传入 |
+| `observe` | `@observe` 安全包装，支持 `@observe` / `@observe(...)` 两种用法 | 透传原函数 |
+| `trace_span(name, as_type)` | span 上下文管理器 | yield `None` |
+| `create_score(name, value, ...)` | 向当前活动 trace 回写评分（v4 API：`score_current_trace`） | 静默跳过 |
+| `flush_langfuse()` | 排空 OTLP 上报队列 | 静默跳过 |
+
+### 接入点明细
+
+| 位置 | 埋点方式 | 说明 |
+|------|----------|------|
+| `api/chat.py` `/chat`、`/chat/stream` | config 注入 callback + `langfuse_session_id` + `langfuse_trace_name`（`"chat"` / `"chat-stream"`） | **图统一入口**：handler 挂在这里，图内所有节点（intent/retrieve/reply/quiz/grade/progress）的 LLM 调用经 RunnableConfig contextvar 自动继承，agent.py 零改动；`session_id` 使多轮对话按会话聚合；`trace_name` 让 Tracing 视图显示业务名而非默认的 "LangGraph" |
+| `api/chat.py` `/chat/quiz`、`/chat/quiz/stream` | `trace_span("quiz-generate" / "quiz-generate-stream")` 包裹检索 + 出题 | **一条完整链路**：@observe 的检索 span 与出题链 generation 嵌套进同一 trace；`/quiz` 的 `asyncio.to_thread` 会复制 contextvars，OTel 上下文随线程传播，跨线程嵌套不断裂；span 的 input 记出题参数，output 记 quiz_id 与题干 |
+| `api/chat.py` `/chat/quiz/submit` | `trace_span("quiz-grade")` + `create_score` | 判分链在 span 内执行（嵌套进同一 trace），判分结果回写 Score；span 的 input 记 `quiz_id`/`question_type`，output 记判分结果 |
+| `services/rag.py` 三个检索入口 | `@observe(as_type="retriever")` | 检索不走 LangChain Runnable，callback 抓不到；装饰器把整个混合检索（向量+BM25+RRF）记为一个 retriever span，query、命中、耗时全可见 |
+| `services/textbook_generator.py` | `@observe` + 逐章 invoke 传 config + 末尾 `flush_langfuse()` | 教材生成跑在 BackgroundTasks 线程池，**OTel 上下文不跨线程**，需在任务函数内显式挂 callback 并在结束时 flush |
+| `services/grading.py` | `grade_answer` 加 `config` 参数透传至 `_llm_grade` / `_llm_diagnosis` | 图内调用靠 contextvar 自动继承；直连路径（submit 端点）由调用方传入 |
+| `main.py` lifespan | 关闭时 `flush_langfuse()` | v4 事件走 OTLP 异步批量上报，进程退出前必须排空，否则丢尾部数据 |
+
+### Tracing 视图的 Name 来源
+
+Langfuse 的 Tracing 列表中 Name 列取**每条 trace 根观测的名字**，规则按优先级：
+
+1. metadata 里的 `langfuse_trace_name`（CallbackHandler 在链根读取，`CallbackHandler.py:506`）——本项目的 `chat` / `chat-stream` / `quiz-grade` 等即由此命名
+2. `@observe(name=...)` / `trace_span(name=...)`——手动埋点无外层 trace 时自己成根，如教材生成的 `generate-textbook`
+3. 默认取 LangChain Runnable 名（如 `LangGraph`、`RunnableSequence`）——不显式命名时 Tracing 视图会被这些无业务语义的名字刷屏
+
+如需按用户维度聚合（Users 视图），在 metadata 里加 `langfuse_user_id` 即可（当前系统无账号体系，未启用）。
+
+### 配置项（`.env`）
+
+| 变量 | 说明 |
+|------|------|
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | 项目 API 密钥对（`pk-lf-` / `sk-lf-` 前缀，不可互换）。**留空即整体关闭监控** |
+| `LANGFUSE_HOST` | 服务地址，云端或自托管。**不要带末尾斜杠**（见故障排查）；`observability.py` 已做 `rstrip("/")` 兜底 |
+| `LANGFUSE_ENABLED` | 总开关，默认 `True`，置 `False` 可在密钥保留的情况下临时关闭 |
+
+### 接入侧故障排查
+
+**验证连通性**（不改业务、不泄露密钥）：
+
+```bash
+cd backend && .venv/Scripts/python -c "
+import os
+from app.core.config import get_settings
+s = get_settings()
+os.environ['LANGFUSE_PUBLIC_KEY'] = s.LANGFUSE_PUBLIC_KEY
+os.environ['LANGFUSE_SECRET_KEY'] = s.LANGFUSE_SECRET_KEY
+os.environ['LANGFUSE_HOST'] = s.LANGFUSE_HOST.rstrip('/')
+from langfuse import get_client
+print('auth_check:', get_client().auth_check())
+"
+```
+
+| 症状 | 原因 | 处理 |
+|------|------|------|
+| `Failed to export span batch code: 401` | 密钥无效：填反了（pk/sk 前缀互换）、复制了 UI 掩码值（真实密钥约 42 字符，只在创建时完整显示一次） | 到 Langfuse Settings → API Keys 新建密钥对并完整复制 |
+| 先 308 跳转再 500 | `LANGFUSE_HOST` 带末尾斜杠，SDK 拼出 `//api/...` 双斜杠路径触发 308，代理转发跳转请求时损坏 | 去掉末尾斜杠（代码已兜底 `rstrip`） |
+| 持续 500，且仅真实对话流量报错（手动小 span 正常） | **服务端 S3/MinIO 故障**——generation 观测的 IO 要先上传 S3，普通 span 不走该路径，故只有真实 LLM 流量失败 | 服务端 `docker compose logs langfuse-web \| grep -i s3` 定位，见下节部署文档 |
+| 上报失败但业务正常 | 预期行为：上报是异步批量的，任何导出异常都不影响请求响应 | 修复服务端后自然恢复 |
+
+**SDK 版本注意**：本项目锁定 `langfuse>=4.0`。v3 的 `get_trace_context()` / `create_score(trace_id=...)` 在 v4 已移除，对应 `get_current_trace_id()` / `score_current_trace()`；网上大量教程仍是 v2 写法（`langfuse.callback.CallbackHandler`），不可照搬。
+
+## Langfuse 部署（Docker Compose 自托管）
+
+本项目使用 Langfuse 做 LLM 可观测性（trace 链路追踪）。以下为自托管部署的完整记录与踩坑总结。
+
+### 部署架构
+
+`docker compose up` 一键启动 6 个容器，无需单独安装任何依赖服务：
+
+| 服务 | 作用 | 端口 |
+|---|---|---|
+| langfuse-web | Web UI 和 API | 3000（对外） |
+| langfuse-worker | 后台异步处理 | 3030（仅本机） |
+| postgres | 配置、项目、用户等元数据 | 5432（仅本机） |
+| clickhouse | traces/observations 遥测数据 | 8123/9000（仅本机） |
+| redis | 队列和缓存 | 6379（仅本机） |
+| minio | 对象存储（事件、媒体文件） | 9090（对外）、9091（仅本机） |
+
+**只需要两个文件**，放在同一目录（如 `/home/projects/langfuse`）：
+
+```bash
+mkdir -p /home/projects/langfuse && cd /home/projects/langfuse
+wget https://raw.githubusercontent.com/langfuse/langfuse/main/docker-compose.yml
+```
+
+### .env 配置
+
+compose 文件里所有 `${XXX:-默认值}` 变量从同目录的 `.env` 读取。**不需要复制仓库里的 `.env.dev.example` / `.env.prod.example`**——那些是给源码开发/构建用的，与镜像部署无关，直接复制反而会引入冲突变量。
+
+`.env` 是可选的（不配则用公开默认值启动），但生产环境必须自建，最小模板：
+
+```bash
+# 访问地址：浏览器地址栏输入什么就填什么，云服务器填公网 IP 或域名
+# 注意：不能填 0.0.0.0（那是监听地址语义，NextAuth 用它生成回调/重定向 URL）
+NEXTAUTH_URL=http://<服务器IP或域名>:3000
+
+# 三个密钥分别用 openssl rand -hex 32 生成
+NEXTAUTH_SECRET=<随机密钥1>
+SALT=<随机密钥2>
+ENCRYPTION_KEY=<随机密钥3>
+
+# PostgreSQL 密码（两处必须一致）
+POSTGRES_PASSWORD=<PG密码>
+DATABASE_URL=postgresql://postgres:<PG密码>@postgres:5432/postgres
+
+# ClickHouse / Redis 密码
+CLICKHOUSE_PASSWORD=<ClickHouse密码>
+REDIS_AUTH=<Redis密码>
+
+# MinIO 密码（四处必须一致）
+MINIO_ROOT_PASSWORD=<MinIO密码>
+LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=<MinIO密码>
+LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY=<MinIO密码>
+LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY=<MinIO密码>
+
+# 可选：关闭遥测上报
+TELEMETRY_ENABLED=false
+```
+
+**填写规则（易踩坑）：**
+
+1. 密码只用字母和数字。`#`、`@`、`/`、`$` 等特殊字符在连接串和 shell 解析中会出问题。推荐 `openssl rand -hex 16` 生成。
+2. 一致性是核心：`DATABASE_URL` 里的密码 = `POSTGRES_PASSWORD`；三个 `LANGFUSE_S3_*_SECRET_ACCESS_KEY` = `MINIO_ROOT_PASSWORD`。
+3. 格式为 `KEY=value`：不加引号、等号两边无空格、注释单独成行（不要行尾注释）。
+4. 这些密码只用于 Docker 内部网络的容器间通信（postgres/redis/clickhouse 端口均绑定 127.0.0.1），不是给用户用的，第一次启动时由 postgres 容器按 `POSTGRES_PASSWORD` 初始化。
+
+### 无头初始化（LANGFUSE_INIT_*）
+
+可在 `.env` 预置组织/项目/管理员账号/API Key，免去网页注册：
+
+```bash
+LANGFUSE_INIT_ORG_ID=my-org          # 总开关！不设则其余 INIT 变量全部被忽略
+LANGFUSE_INIT_ORG_NAME=my-org
+LANGFUSE_INIT_PROJECT_ID=my-project
+LANGFUSE_INIT_PROJECT_NAME=my-project
+LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-<自定义>   # pk-lf- 前缀 + 任意字符串
+LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-<自定义>   # sk-lf- 前缀，不能与公钥相同
+LANGFUSE_INIT_USER_EMAIL=admin@example.com
+LANGFUSE_INIT_USER_NAME=admin
+LANGFUSE_INIT_USER_PASSWORD=<至少8位>
+```
+
+**关键行为（依据 `web/src/initialize.ts` 源码）：**
+
+- **`LANGFUSE_INIT_ORG_ID` 是总开关**：不设它，其他所有 `LANGFUSE_INIT_*` 静默忽略（日志只有一条 warning）。这是"配了账号却登录不上"的最常见原因。
+- 初始化是幂等的（upsert），重复启动不会重复创建。
+- **用户已存在则不会重置密码**（`if (!userId)` 才创建）。改过密码想生效，需换新邮箱，或删库中旧用户后重建：
+  ```bash
+  docker compose exec postgres psql -U postgres -d postgres -c "DELETE FROM users WHERE email='admin@example.com';"
+  docker compose up -d --force-recreate langfuse-web
+  ```
+- PUBLIC_KEY/SECRET_KEY 是**应用接入凭证**（代码里 `Langfuse(public_key=..., secret_key=...)`），不是网页登录凭证；自己定义，启动时写入数据库。也可事后在网页 Settings → API Keys 手动创建，效果相同。
+
+### 日常运维命令
+
+```bash
+docker compose pull        # 拉取镜像
+docker compose up -d       # 启动/应用配置变更（自动重建受影响容器，无需先 down）
+docker compose ps          # 查看状态
+docker compose logs -f langfuse-web   # 跟踪日志
+docker compose config      # 校验 .env 注入结果与 compose 合法性
+```
+
+**重要区分：**
+
+- 改配置后用 `docker compose up -d`（对比配置差异，只重建受影响的容器，数据在 volume 中不受影响）。**不要用 `docker compose restart`**——它不重新加载 `.env`，是"改了不生效"的常见原因。
+- `docker compose down` 停掉整套服务（保留数据）；`docker compose down -v` **连数据卷一起删**（彻底重来）。
+- 例外：postgres/redis 自身的密码在首次初始化时已固化进数据卷，事后改 `POSTGRES_PASSWORD` 等不会重新应用，会导致连接失败。密码类配置首次部署时定好。
+
+### 登录与接入
+
+浏览器访问 `http://<服务器IP>:3000`：
+
+- 配了 `LANGFUSE_INIT_*`：直接用预设邮箱密码登录；
+- 没配：Sign up 注册第一个账号，按引导创建组织和项目，自动生成 API Key 对（Secret Key 只完整显示一次）。
+
+应用侧接入：
+
+```python
+from langfuse import Langfuse
+
+langfuse = Langfuse(
+    public_key="pk-lf-...",
+    secret_key="sk-lf-...",
+    host="http://<服务器IP>:3000",   # 指向自部署实例
+)
+```
+
+### 故障排查
+
+**登录问题按症状定位：**
+
+| 症状 | 方向 |
+|---|---|
+| 页面打不开 | 查 `docker compose ps`、`docker compose logs langfuse-web`（首次启动要跑迁移，等 1~2 分钟）、防火墙/安全组端口 |
+| 提示用户名或密码错误 | 用户没创建成功或密码不对，走下面的三步排查 |
+| 提交后跳回登录页无报错 | `NEXTAUTH_URL` 与浏览器实际访问地址不一致（含端口），改后重建 |
+
+**初始化账号未生效的三步排查：**
+
+```bash
+# 1. 确认变量注入容器（空值 = .env 该行写法有误）
+docker compose exec langfuse-web env | grep LANGFUSE_INIT
+
+# 2. 看初始化日志（"will be ignored" = ORG_ID 缺失；"Partial user configuration" = EMAIL/PASSWORD 只配了一个）
+docker compose logs langfuse-web 2>&1 | grep -i "langfuse init"
+
+# 3. 直接查库确认用户是否存在
+docker compose exec postgres psql -U postgres -d postgres -c "SELECT email, name FROM users;"
+```
+
+**国内拉取镜像失败（Docker Hub 被墙/DNS 污染）：**
+
+典型报错：`failed to resolve reference ... dial tcp 157.240.x.x:443: i/o timeout`（DNS 污染到错误 IP）。解法：
+
+1. 配置镜像加速器（`/etc/docker/daemon.json`）：
+   ```json
+   {
+     "registry-mirrors": [
+       "https://docker.1ms.run",
+       "https://docker.m.daocloud.io",
+       "https://dockerproxy.net"
+     ]
+   }
+   ```
+   然后 `systemctl daemon-reload && systemctl restart docker`。
+2. **`registry-mirrors` 只对 `docker.io` 生效**。compose 里 `docker.langfuse.com/langfuse/xxx` 是官方别名，不走加速器，需改为 `langfuse/langfuse:4`、`langfuse/langfuse-worker:4`（同一镜像）。
+3. `cgr.dev/chainguard/minio` 拉不动时可换成 `minio/minio:latest`（entrypoint/健康检查均兼容）。
+4. 兜底：从镜像站手动拉取打 tag，如 `docker pull docker.m.daocloud.io/langfuse/langfuse:4 && docker tag docker.m.daocloud.io/langfuse/langfuse:4 langfuse/langfuse:4`。
+
+**参考：** [官方 docker-compose.yml](https://github.com/langfuse/langfuse/blob/main/docker-compose.yml) ｜ [自托管文档](https://langfuse.com/self-hosting/docker-compose) ｜ [初始化源码](https://github.com/langfuse/langfuse/blob/main/web/src/initialize.ts)

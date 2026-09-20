@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
+from app.core.observability import flush_langfuse
 from app.api import health, subjects, chat, admin
 from app.services.model_config_service import init_default_model_from_env
 from app.services.agent import build_agent
@@ -27,7 +28,8 @@ async def lifespan(app: FastAPI):
     async with create_checkpointer() as checkpointer:
         app.state.agent = build_agent(checkpointer)
         yield
-    # 服务关闭时：清理数据库连接
+    # 服务关闭时：排空 Langfuse 上报队列、清理数据库连接
+    flush_langfuse()
     await close_db()
 
 app = FastAPI(

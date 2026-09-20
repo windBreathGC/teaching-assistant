@@ -22,6 +22,8 @@
 - **教材生成**：根据学科大纲自动生成教材内容
 - **任务中心**：异步任务管理，实时查看教材解析、向量化等任务进度
 - **模型接入管理**：支持多模型配置、默认模型切换，兼容任意 OpenAI 格式 API
+- **LLM 可观测性**：集成 [Langfuse](https://langfuse.com/) 全链路追踪（LLM 调用、检索、判分打分），可选接入，不配密钥自动关闭
+- **韧性设计**：LLM 调用显式重试 + 供应商熔断 fail-fast + 会话限流，瞬时故障友好降级（503 + 可重试提示）
 
 ## 技术架构
 
@@ -60,6 +62,7 @@
 - [LangChain](https://www.langchain.com/) + [LangGraph](https://langchain-ai.github.io/langgraph/) AI Agent 编排
 - [SQLAlchemy](https://www.sqlalchemy.org/) + [aiosqlite](https://github.com/omnilib/aiosqlite) 异步 ORM / SQLite
 - [OpenAI](https://platform.openai.com/) 兼容 API（支持第三方 LLM 平台）
+- [Langfuse](https://langfuse.com/) LLM 可观测性（OpenTelemetry 链路追踪，可选）
 - [uv](https://docs.astral.sh/uv/) Python 包管理（`pyproject.toml` + `uv.lock` 锁定依赖）
 
 ## 项目结构
@@ -69,7 +72,7 @@
 ├── backend/                    # 后端服务
 │   ├── app/
 │   │   ├── api/               # API 路由（health / subjects / chat / admin）
-│   │   ├── core/              # 配置、常量
+│   │   ├── core/              # 配置、常量、可观测性（Langfuse）、韧性层（熔断/限流）
 │   │   ├── db/                # 数据库模型与连接（SQLite）
 │   │   ├── models/            # Pydantic 数据模型
 │   │   ├── services/          # 业务逻辑（RAG、教学 Agent、判分、学习画像、会话记忆、教材解析/生成/分析、模型配置、任务管理）
@@ -139,6 +142,15 @@ cp .env.example .env
 | `DEBUG` | 否 | 调试模式（默认 False） | `False` |
 | `RAG_DISTANCE_THRESHOLD` | 否 | 检索充分性阈值（l2 距离，默认 1.2；超过则判定"教材中未找到足够依据"，走诚实兜底回答） | `1.2` |
 | `HISTORY_MAX_MESSAGES` | 否 | 发给 LLM 的对话历史窗口（条数，默认 12） | `12` |
+| `LANGFUSE_PUBLIC_KEY` | 否 | Langfuse 项目公钥（**留空则监控整体关闭**，业务不受影响） | `pk-lf-...` |
+| `LANGFUSE_SECRET_KEY` | 否 | Langfuse 项目密钥 | `sk-lf-...` |
+| `LANGFUSE_HOST` | 否 | Langfuse 服务地址（云端或自托管，**不要带末尾斜杠**） | `https://cloud.langfuse.com` |
+| `LANGFUSE_ENABLED` | 否 | Langfuse 总开关（默认 True） | `True` |
+| `LLM_MAX_RETRIES` | 否 | LLM 瞬时错误自动重试次数（默认 3） | `3` |
+| `LLM_CIRCUIT_FAILURE_THRESHOLD` | 否 | LLM 熔断阈值：连续瞬时故障次数（默认 3） | `3` |
+| `LLM_CIRCUIT_RECOVERY_SECONDS` | 否 | 熔断冷却期秒数（默认 60，过后半开试探恢复） | `60` |
+| `CHAT_RATE_LIMIT_MAX_CALLS` | 否 | 单会话限流：窗口内最大对话请求数（默认 20） | `20` |
+| `CHAT_RATE_LIMIT_WINDOW_SECONDS` | 否 | 限流窗口秒数（默认 60） | `60` |
 
 > 支持任何 OpenAI 兼容格式的 LLM 平台，如 [SiliconFlow](https://siliconflow.cn/)、[DashScope](https://dashscope.aliyun.com/) 等。
 
@@ -263,7 +275,9 @@ python scripts/ingest_textbooks.py
 - 对话记忆：checkpointer 会话持久化，多轮上下文与"我选B"作答判分
 - 判分闭环：出题落库 → 提交判分（选择题本地比对、填空简答 LLM 判分）→ 错因诊断 → 掌握度更新
 - 学习画像：EMA + 遗忘衰减的掌握度模型，学情报告（LLM 包装 + 模板兜底）
+- 韧性设计：瞬时/永久错误分类、SDK 有限重试、供应商熔断（closed/open/half-open）、按会话滑动窗口限流、分层降级
 - 向量化增量更新：chunk 级 diff、稳定 ID、先增后删、数据自愈
+- 可观测性：Langfuse 全链路追踪（LLM 调用 / 检索 span / 判分 Score），不配密钥自动降级关闭；自托管部署见「Langfuse 部署」
 
 ## 学习闭环示例
 

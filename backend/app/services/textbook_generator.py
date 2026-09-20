@@ -13,6 +13,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from app.core.observability import observe, callback_config, flush_langfuse
+
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).parent.parent.parent.parent
@@ -109,6 +111,7 @@ def _create_llm(model_config: dict) -> ChatOpenAI:
     )
 
 
+@observe(name="generate-outline")
 def generate_outline(
     subject: str,
     grade: str,
@@ -146,6 +149,8 @@ def generate_outline(
     ])
     chain = prompt | llm | StrOutputParser()
 
+    # 后台任务运行在独立线程，OTel 上下文不自动跨线程：显式挂 callback 让
+    # LLM 调用嵌套进本函数的 observe span，形成一条完整 trace
     result = chain.invoke({
         "region": region or "全国通用",
         "subject": subject,
@@ -154,7 +159,7 @@ def generate_outline(
         "publisher": publisher,
         "version_year": version_year,
         "notes": notes or "无",
-    })
+    }, config=callback_config(tags=["generate-outline", subject]))
 
     # 清理可能的代码块标记
     cleaned = re.sub(r"^```json\s*", "", result.strip())
@@ -220,6 +225,7 @@ def _build_overview_section(overview: str, chapters: list[dict]) -> str:
     return "\n".join(lines)
 
 
+@observe(name="generate-textbook")
 def generate_textbook(
     outline: dict,
     meta: dict,
@@ -299,7 +305,7 @@ def generate_textbook(
                 "chapter_description": chapter.get("description", ""),
                 "lessons_info": lessons_info or "（本章为综合实践或复习章节）",
                 "context_note": context_note,
-            })
+            }, config=callback_config(tags=["generate-textbook", subject]))
         except Exception as e:
             logger.exception("章节生成失败: %s", chapter["title"])
             # 生成占位内容，不中断整体流程
@@ -315,6 +321,9 @@ def generate_textbook(
     # 写入文件
     full_content = "\n".join(md_parts)
     file_path.write_text(full_content, encoding="utf-8")
+
+    # 本函数在 BackgroundTasks 线程中执行，结束前必须排空 Langfuse 上报队列
+    flush_langfuse()
 
     logger.info("教材生成完成: %s (约 %d 字)", file_path, len(full_content))
     return file_path

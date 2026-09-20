@@ -100,7 +100,7 @@ def _parse_grade_output(text: str) -> dict:
     }
 
 
-async def _llm_grade(question, options, correct_answer, explanation, user_answer) -> dict | None:
+async def _llm_grade(question, options, correct_answer, explanation, user_answer, config: dict | None = None) -> dict | None:
     """LLM 判分（填空/简答），astream 聚合（与 teaching 一致，保证事件可冒泡）。"""
     chain = _GRADE_PROMPT | get_llm()
     options_text = "\n".join(f"{chr(65 + i)}. {o}" for i, o in enumerate(options or [])) or "（无选项）"
@@ -111,14 +111,14 @@ async def _llm_grade(question, options, correct_answer, explanation, user_answer
         "correct_answer": correct_answer,
         "explanation": explanation or "（无）",
         "user_answer": user_answer,
-    }):
+    }, config=config or {}):
         text = _extract_text(chunk)
         if text:
             parts.append(text)
     return _parse_grade_output("".join(parts))
 
 
-async def _llm_diagnosis(question, options, correct_answer, user_answer) -> dict:
+async def _llm_diagnosis(question, options, correct_answer, user_answer, config: dict | None = None) -> dict:
     """选择题答错时的错因诊断。失败时返回空诊断。"""
     chain = _DIAGNOSIS_PROMPT | get_llm() | StrOutputParser()
     options_text = "\n".join(f"{chr(65 + i)}. {o}" for i, o in enumerate(options or [])) or "（无选项）"
@@ -128,7 +128,7 @@ async def _llm_diagnosis(question, options, correct_answer, user_answer) -> dict
             "options": options_text,
             "correct_answer": correct_answer,
             "user_answer": user_answer,
-        })
+        }, config=config or {})
         cause_m = re.search(r'【错因】\s*([^\n【】]+)', text)
         diag_m = re.search(r'【诊断】\s*(.*?)$', text, re.DOTALL)
         cause = cause_m.group(1).strip() if cause_m else "概念不清"
@@ -147,8 +147,11 @@ async def grade_answer(
     explanation: str,
     user_answer: str,
     question_type: str = "选择",
+    config: dict | None = None,
 ) -> dict:
-    """判分入口。返回 {is_correct, score, misconception, diagnosis}。"""
+    """判分入口。返回 {is_correct, score, misconception, diagnosis}。
+
+    config 为可选 RunnableConfig（如 Langfuse callback），透传给内部 LLM 链。"""
     is_choice = question_type == "选择" or bool(options)
     correct_letter = _extract_choice_letter(correct_answer) if is_choice else None
 
@@ -159,7 +162,7 @@ async def grade_answer(
             is_correct = student_letter == correct_letter
             if is_correct:
                 return {"is_correct": True, "score": 1.0, "misconception": None, "diagnosis": ""}
-            diag = await _llm_diagnosis(question, options, correct_answer, user_answer)
+            diag = await _llm_diagnosis(question, options, correct_answer, user_answer, config=config)
             return {"is_correct": False, "score": 0.0, **diag}
         # 自由表述的作答（如英文解释）无法可靠提取字母，误判为错会污染掌握度，
         # 降级 LLM 判分让模型按作答内容语义判定
@@ -171,7 +174,7 @@ async def grade_answer(
 
     # 填空 / 简答 / 非常规选择题：LLM 判分，失败兜底规范化比对
     try:
-        result = await _llm_grade(question, options, correct_answer, explanation, user_answer)
+        result = await _llm_grade(question, options, correct_answer, explanation, user_answer, config=config)
     except Exception as e:
         logger.warning("LLM判分失败，降级字符串比对: %s", e)
         result = None

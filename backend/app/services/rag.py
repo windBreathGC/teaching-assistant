@@ -10,6 +10,7 @@ from chromadb.api.models.Collection import Collection
 from langchain_openai import OpenAIEmbeddings
 
 from app.core.config import get_settings
+from app.core.observability import observe
 from app.services.keyword_search import bm25_search
 from app.services.textbook_parser import GRADE_SUFFIX_MAP
 
@@ -245,6 +246,7 @@ def _hybrid_retrieve(query: str,
     return _rrf_merge(vector_hits, bm25_hits)[:top_k]
 
 
+@observe(as_type="retriever", name="hybrid-retrieve")
 def retrieve(
     query: str,
     subject: str | None = None,
@@ -277,6 +279,7 @@ def retrieve(
     return _hybrid_retrieve(query, query_vector, where_filter, top_k, fetch_k)
 
 
+@observe(as_type="retriever", name="hybrid-retrieve")
 async def aretrieve(
     query: str,
     subject: str | None = None,
@@ -331,6 +334,7 @@ def _judge_sufficiency(vector_hits: list[dict]) -> bool:
     return sufficient
 
 
+@observe(as_type="retriever", name="hybrid-retrieve-checked")
 async def aretrieve_checked(
     query: str,
     subject: str | None = None,

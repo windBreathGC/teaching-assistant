@@ -14,6 +14,11 @@ from app.services.agent import agent as fallback_agent
 from app.services.rag import aretrieve, get_lesson_name
 from app.services.teaching import _extract_text, generate_quiz, parse_quiz_output, stream_quiz
 from app.services import grading, learner_repo
+from app.core import observability as obs
+from app.core.resilience import (
+    BUSY_MESSAGE, RATE_LIMIT_MESSAGE,
+    chat_rate_limiter, is_transient_llm_error, llm_circuit,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -60,9 +65,21 @@ def _initial_state(request: ChatRequest) -> dict:
 async def chat(request: ChatRequest, http_request: Request):
     """对话接口（原生异步，非流式）"""
     session_id = request.session_id or uuid.uuid4().hex
-    config = {"configurable": {"thread_id": session_id}}
+    # 限流（防误触连发/脚本刷量）→ 熔断（供应商持续故障时 fail-fast，用户秒级收到提示）
+    if not chat_rate_limiter.allow(session_id):
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_MESSAGE)
+    if not llm_circuit.allow_request():
+        raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
+    # Langfuse callback 挂在 config 上，图内所有节点（intent/retrieve/reply 等）
+    # 的 LLM 调用经 RunnableConfig contextvar 自动继承，按 session_id 聚合多轮对话
+    config = {
+        "configurable": {"thread_id": session_id},
+        **obs.callback_config(tags=["chat", request.subject or "general"], session_id=session_id,
+                              trace_name="chat"),
+    }
     try:
         result = await _get_agent(http_request).ainvoke(_initial_state(request), config=config)
+        llm_circuit.record_success()
 
         return ChatResponse(
             reply=result.get("reply", ""),
@@ -72,6 +89,11 @@ async def chat(request: ChatRequest, http_request: Request):
             suggested_actions=result.get("suggested_actions", []),
         )
     except Exception as e:
+        llm_circuit.record_failure(e)
+        if is_transient_llm_error(e):
+            # 供应商限流/超时/5xx：瞬时故障，提示可重试，返回 503 而非笼统 500
+            logger.warning("LLM 供应商瞬时故障: %s", e)
+            raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
         logger.error("对话处理失败: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="智能体处理失败，请稍后重试")
 
@@ -85,7 +107,15 @@ async def chat_stream(request: ChatRequest, http_request: Request):
     quiz/grade/chat 分支无 LLM 流，节点完成后一次性下发其文本。
     retrieve 节点完成后先下发 references 事件（教材出处 + 检索充分性）。"""
     session_id = request.session_id or uuid.uuid4().hex
-    config = {"configurable": {"thread_id": session_id}}
+    if not chat_rate_limiter.allow(session_id):
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_MESSAGE)
+    if not llm_circuit.allow_request():
+        raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
+    config = {
+        "configurable": {"thread_id": session_id},
+        **obs.callback_config(tags=["chat-stream", request.subject or "general"], session_id=session_id,
+                              trace_name="chat-stream"),
+    }
     agent = _get_agent(http_request)
 
     async def event_generator():
@@ -134,10 +164,18 @@ async def chat_stream(request: ChatRequest, http_request: Request):
                     suggested_actions = output.get("suggested_actions", suggested_actions)
 
             yield f"data: {json.dumps({'type': 'done', 'reply': final_reply, 'suggested_actions': suggested_actions[:3], 'references': references, 'retrieval_ok': retrieval_ok, 'session_id': session_id}, ensure_ascii=False)}\n\n"
+            llm_circuit.record_success()
 
         except Exception as e:
-            logger.error("流式对话失败: %s", e, exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'detail': '服务处理失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+            llm_circuit.record_failure(e)
+            if is_transient_llm_error(e):
+                # 供应商限流/超时/5xx：瞬时故障，提示可重试
+                logger.warning("LLM 供应商瞬时故障: %s", e)
+                detail = BUSY_MESSAGE
+            else:
+                logger.error("流式对话失败: %s", e, exc_info=True)
+                detail = '服务处理失败，请稍后重试'
+            yield f"data: {json.dumps({'type': 'error', 'detail': detail}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -149,31 +187,45 @@ async def chat_stream(request: ChatRequest, http_request: Request):
 async def generate_quiz_endpoint(request: QuizRequest):
     """生成测验题（落库并返回 quiz_id，供提交答案判分关联）"""
     try:
-        docs = await aretrieve(
-            query=f"{request.subject} {request.chapter or ''} {request.lesson or ''} 知识点",
-            subject=request.subject,
-            lesson=request.lesson,
-            top_k=2,
-        )
-        # generate_quiz 是同步链（内部 chain.invoke 走同步 HTTP），
-        # 直接 await 会把秒级 LLM 调用压在事件循环上，卡死并发的 /chat/stream
-        quiz = await asyncio.to_thread(
-            generate_quiz,
-            subject=request.subject,
-            chapter=request.chapter or "",
-            lesson=request.lesson,
-            docs=docs,
-            difficulty=request.difficulty,
-            question_type=request.question_type,
-        )
-        quiz_id = await learner_repo.create_attempt(
-            subject=request.subject,
-            chapter=request.chapter,
-            lesson=request.lesson,
-            quiz=quiz,
-            difficulty=request.difficulty,
-            question_type=request.question_type,
-        )
+        # trace_span 为根：检索（@observe span）与出题链（generation）嵌套进同一条
+        # trace，Tracing 视图可看到完整链路；asyncio.to_thread 会复制 contextvars，
+        # OTel 上下文随之传入工作线程，嵌套关系不断裂
+        with obs.trace_span(
+            name="quiz-generate",
+            input={"subject": request.subject, "chapter": request.chapter,
+                   "lesson": request.lesson, "difficulty": request.difficulty,
+                   "question_type": request.question_type},
+        ) as span:
+            docs = await aretrieve(
+                query=f"{request.subject} {request.chapter or ''} {request.lesson or ''} 知识点",
+                subject=request.subject,
+                lesson=request.lesson,
+                top_k=2,
+            )
+            # generate_quiz 是同步链（内部 chain.invoke 走同步 HTTP），
+            # 直接 await 会把秒级 LLM 调用压在事件循环上，卡死并发的 /chat/stream
+            quiz = await asyncio.to_thread(
+                generate_quiz,
+                subject=request.subject,
+                chapter=request.chapter or "",
+                lesson=request.lesson,
+                docs=docs,
+                difficulty=request.difficulty,
+                question_type=request.question_type,
+                config=obs.callback_config(tags=["quiz", request.subject or "general"],
+                                           trace_name="quiz-generate"),
+            )
+            quiz_id = await learner_repo.create_attempt(
+                subject=request.subject,
+                chapter=request.chapter,
+                lesson=request.lesson,
+                quiz=quiz,
+                difficulty=request.difficulty,
+                question_type=request.question_type,
+            )
+            if span is not None:
+                span.update(output={"quiz_id": quiz_id, "question": quiz["question"]})
+        llm_circuit.record_success()
         return QuizResponse(
             question=quiz["question"],
             options=quiz.get("options"),
@@ -183,6 +235,10 @@ async def generate_quiz_endpoint(request: QuizRequest):
             quiz_id=quiz_id,
         )
     except Exception as e:
+        llm_circuit.record_failure(e)
+        if is_transient_llm_error(e):
+            logger.warning("LLM 供应商瞬时故障: %s", e)
+            raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
         logger.error("出题失败: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="出题失败，请稍后重试")
 
@@ -192,46 +248,64 @@ async def generate_quiz_stream(request: QuizRequest):
     """流式生成测验题（SSE），done 事件携带 quiz_id 供提交判分"""
     async def event_generator():
         try:
-            docs = await aretrieve(
-                query=f"{request.subject} {request.chapter or ''} {request.lesson or ''} 知识点",
-                subject=request.subject,
-                lesson=request.lesson,
-                top_k=2,
-            )
+            # 同 /quiz：检索与出题链嵌套进同一条 trace
+            with obs.trace_span(
+                name="quiz-generate-stream",
+                input={"subject": request.subject, "chapter": request.chapter,
+                       "lesson": request.lesson, "difficulty": request.difficulty,
+                       "question_type": request.question_type},
+            ) as span:
+                docs = await aretrieve(
+                    query=f"{request.subject} {request.chapter or ''} {request.lesson or ''} 知识点",
+                    subject=request.subject,
+                    lesson=request.lesson,
+                    top_k=2,
+                )
 
-            full_question = ""
-            async for token in stream_quiz(
-                subject=request.subject,
-                chapter=request.chapter or "",
-                lesson=get_lesson_name(request.lesson),
-                docs=docs,
-                difficulty=request.difficulty,
-                question_type=request.question_type,
-            ):
-                full_question += token
-                yield f"data: {json.dumps({'type': 'token', 'content': token}, ensure_ascii=False)}\n\n"
+                full_question = ""
+                async for token in stream_quiz(
+                    subject=request.subject,
+                    chapter=request.chapter or "",
+                    lesson=get_lesson_name(request.lesson),
+                    docs=docs,
+                    difficulty=request.difficulty,
+                    question_type=request.question_type,
+                    config=obs.callback_config(tags=["quiz-stream", request.subject or "general"],
+                                               trace_name="quiz-generate-stream"),
+                ):
+                    full_question += token
+                    yield f"data: {json.dumps({'type': 'token', 'content': token}, ensure_ascii=False)}\n\n"
 
-            parsed = parse_quiz_output(full_question)
-            quiz = {
-                "question": parsed["question"],
-                "options": parsed["options"],
-                "correct_answer": parsed["correct_answer"],
-                "explanation": parsed["explanation"],
-                "knowledge_point": request.chapter or "通用知识点",
-            }
-            quiz_id = await learner_repo.create_attempt(
-                subject=request.subject,
-                chapter=request.chapter,
-                lesson=request.lesson,
-                quiz=quiz,
-                difficulty=request.difficulty,
-                question_type=request.question_type,
-            )
-            yield f"data: {json.dumps({'type': 'done', **quiz, 'quiz_id': quiz_id}, ensure_ascii=False)}\n\n"
+                parsed = parse_quiz_output(full_question)
+                quiz = {
+                    "question": parsed["question"],
+                    "options": parsed["options"],
+                    "correct_answer": parsed["correct_answer"],
+                    "explanation": parsed["explanation"],
+                    "knowledge_point": request.chapter or "通用知识点",
+                }
+                quiz_id = await learner_repo.create_attempt(
+                    subject=request.subject,
+                    chapter=request.chapter,
+                    lesson=request.lesson,
+                    quiz=quiz,
+                    difficulty=request.difficulty,
+                    question_type=request.question_type,
+                )
+                if span is not None:
+                    span.update(output={"quiz_id": quiz_id, "question": quiz["question"]})
+                yield f"data: {json.dumps({'type': 'done', **quiz, 'quiz_id': quiz_id}, ensure_ascii=False)}\n\n"
+            llm_circuit.record_success()
 
         except Exception as e:
-            logger.error("流式出题失败: %s", e, exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'detail': '服务处理失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+            llm_circuit.record_failure(e)
+            if is_transient_llm_error(e):
+                logger.warning("LLM 供应商瞬时故障: %s", e)
+                detail = BUSY_MESSAGE
+            else:
+                logger.error("流式出题失败: %s", e, exc_info=True)
+                detail = '服务处理失败，请稍后重试'
+            yield f"data: {json.dumps({'type': 'error', 'detail': detail}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),
@@ -258,15 +332,31 @@ async def submit_quiz(request: QuizSubmitRequest):
                 "diagnosis": attempt["diagnosis"] or "",
             })
         else:
-            grade = await grading.grade_answer(
-                question=attempt["question"],
-                options=attempt["options"],
-                correct_answer=attempt["correct_answer"],
-                explanation=attempt["explanation"],
-                user_answer=request.user_answer,
-                question_type=attempt["question_type"],
-            )
+            # trace_span 内执行的 LLM 判分链会嵌套进同一 trace；判分结果回写为
+            # Langfuse Score（quiz_correct），便于在后台筛选答错 trace 做错因分析
+            with obs.trace_span(
+                name="quiz-grade",
+                input={"quiz_id": request.quiz_id, "question_type": attempt["question_type"]},
+            ) as span:
+                grade = await grading.grade_answer(
+                    question=attempt["question"],
+                    options=attempt["options"],
+                    correct_answer=attempt["correct_answer"],
+                    explanation=attempt["explanation"],
+                    user_answer=request.user_answer,
+                    question_type=attempt["question_type"],
+                    config=obs.callback_config(tags=["quiz-grade"], trace_name="quiz-grade"),
+                )
+                if span is not None:
+                    span.update(output=grade)
+                obs.create_score(
+                    name="quiz_correct",
+                    value=bool(grade["is_correct"]),
+                    data_type="BOOLEAN",
+                    comment=grade.get("diagnosis") or None,
+                )
             result = await learner_repo.submit_attempt(request.quiz_id, request.user_answer, grade)
+            llm_circuit.record_success()
 
         if result is None:
             raise HTTPException(status_code=404, detail="题目不存在或已过期")
@@ -284,5 +374,9 @@ async def submit_quiz(request: QuizSubmitRequest):
     except HTTPException:
         raise
     except Exception as e:
+        llm_circuit.record_failure(e)
+        if is_transient_llm_error(e):
+            logger.warning("LLM 供应商瞬时故障: %s", e)
+            raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
         logger.error("判分失败: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="判分失败，请稍后重试")

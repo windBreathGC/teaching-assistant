@@ -35,3 +35,6 @@ python-markdown==0.1.0
 
 # Security
 cryptography>=42.0.0
+
+# Observability
+langfuse>=4.0

@@ -40,6 +40,7 @@ def get_llm():
             api_key=settings.OPENAI_API_KEY,
             base_url=settings.OPENAI_BASE_URL,
             temperature=0.0,
+            max_retries=settings.LLM_MAX_RETRIES,
             # 关闭 Qwen3 等模型的 thinking，意图分类无需推理且要避免思考延迟
             # （该 provider 认顶层 enable_thinking 参数，不认 chat_template_kwargs）
             extra_body={"enable_thinking": False},

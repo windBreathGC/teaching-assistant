@@ -46,6 +46,22 @@ class Settings(BaseSettings):
     # 发给 LLM 的对话历史窗口（条数，约条数/2 轮问答），控制 prompt token
     HISTORY_MAX_MESSAGES: int = 12
 
+    # Langfuse 可观测性（远端服务）。密钥留空时自动关闭，全部埋点退化为 no-op
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"  # 自托管时改为你的服务地址
+    LANGFUSE_ENABLED: bool = True
+
+    # LLM 韧性：重试 / 熔断 / 限流
+    # openai SDK 层对 429/超时/连接失败/5xx 的自动重试次数（指数退避，封顶防 retry storm）
+    LLM_MAX_RETRIES: int = 3
+    # 连续瞬时故障达到该次数后熔断 fail-fast；冷却期后半开试探，成功自动恢复
+    LLM_CIRCUIT_FAILURE_THRESHOLD: int = 3
+    LLM_CIRCUIT_RECOVERY_SECONDS: float = 60
+    # 对话接口按 session 滑动窗口限流（防误触连发/脚本刷量打爆供应商配额）
+    CHAT_RATE_LIMIT_MAX_CALLS: int = 20
+    CHAT_RATE_LIMIT_WINDOW_SECONDS: float = 60
+
     class Config:
         env_file = str(_ROOT_ENV)
         env_file_encoding = "utf-8"

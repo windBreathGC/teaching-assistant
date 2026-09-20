@@ -21,6 +21,8 @@ def get_llm():
             api_key=settings.OPENAI_API_KEY,
             base_url=settings.OPENAI_BASE_URL,
             temperature=0.5,
+            # 供应商瞬时故障（429/超时/5xx）的 SDK 层自动重试次数，显式设计而非依赖默认值
+            max_retries=settings.LLM_MAX_RETRIES,
             # Qwen3 等思考模型默认开启 thinking，思考阶段 content 为空会导致
             # 流式响应长时间无输出；教学问答有 RAG 兜底，不需要深度推理，关闭之
             # （该 provider 认顶层 enable_thinking 参数，不认 chat_template_kwargs）
@@ -216,8 +218,9 @@ def parse_quiz_output(text: str) -> dict:
     }
 
 
-def generate_quiz(subject: str, chapter: str, lesson: str | None, docs: list[dict], difficulty: str = "基础", question_type: str = "选择") -> dict:
-    """基于检索结果生成测验题"""
+def generate_quiz(subject: str, chapter: str, lesson: str | None, docs: list[dict], difficulty: str = "基础", question_type: str = "选择",
+                  config: dict | None = None) -> dict:
+    """基于检索结果生成测验题。config 为可选 RunnableConfig（如 Langfuse callback）。"""
     context = "\n\n---\n\n".join(
         f"{d.get('metadata', {}).get('lesson', '')}\n{d.get('content', '')[:2000]}"
         for d in docs[:3]
@@ -231,7 +234,7 @@ def generate_quiz(subject: str, chapter: str, lesson: str | None, docs: list[dic
         "difficulty": difficulty,
         "question_type": question_type,
         "lesson": lesson or "指定课文",
-    })
+    }, config=config or {})
 
     parsed = parse_quiz_output(result)
 
@@ -244,8 +247,9 @@ def generate_quiz(subject: str, chapter: str, lesson: str | None, docs: list[dic
     }
 
 
-async def stream_quiz(subject: str, chapter: str, lesson: str | None, docs: list[dict], difficulty: str = "基础", question_type: str = "选择"):
-    """流式生成测验题，逐 token yield"""
+async def stream_quiz(subject: str, chapter: str, lesson: str | None, docs: list[dict], difficulty: str = "基础", question_type: str = "选择",
+                      config: dict | None = None):
+    """流式生成测验题，逐 token yield。config 为可选 RunnableConfig（如 Langfuse callback）。"""
     context = "\n\n---\n\n".join(
         f"{d.get('metadata', {}).get('lesson', '')}\n{d.get('content', '')[:2000]}"
         for d in docs[:3]
@@ -259,7 +263,7 @@ async def stream_quiz(subject: str, chapter: str, lesson: str | None, docs: list
         "difficulty": difficulty,
         "question_type": question_type,
         "lesson": lesson or "指定课文",
-    }):
+    }, config=config or {}):
         # 同 stream_reply：过滤 content 为空的脚手架 chunk
         text = _extract_text(chunk)
         if text:
